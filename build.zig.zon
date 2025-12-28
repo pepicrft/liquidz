@@ -1,0 +1,11 @@
+.{
+    .name = .liquidz,
+    .version = "0.0.0",
+    .fingerprint = 0x9095f882d6cee3e5,
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

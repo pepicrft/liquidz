@@ -1,0 +1,23 @@
+# Zig
+zig-out/
+.zig-cache/
+
+# Ruby
+*.gem
+*.bundle
+Gemfile.lock
+
+# C extensions
+*.o
+*.so
+*.dylib
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
