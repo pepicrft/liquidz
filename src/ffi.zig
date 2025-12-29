@@ -3,38 +3,6 @@
 const std = @import("std");
 const liquidz = @import("root.zig");
 
-const Allocator = std.mem.Allocator;
-
-fn jsonToValueOwned(allocator: Allocator, json: std.json.Value) !liquidz.Value {
-    return switch (json) {
-        .null => liquidz.Value.initNil(),
-        .bool => |b| liquidz.Value.initBool(b),
-        .integer => |i| liquidz.Value.initInt(i),
-        .float => |f| liquidz.Value.initFloat(f),
-        .string => |s| blk: {
-            const copy = try allocator.dupe(u8, s);
-            break :blk liquidz.Value.initString(copy);
-        },
-        .array => |arr| blk: {
-            var result: std.ArrayList(liquidz.Value) = .empty;
-            for (arr.items) |item| {
-                try result.append(allocator, try jsonToValueOwned(allocator, item));
-            }
-            break :blk liquidz.Value.initArray(try result.toOwnedSlice(allocator));
-        },
-        .object => |obj| blk: {
-            var result = liquidz.Value.initObject(allocator);
-            var it = obj.iterator();
-            while (it.next()) |entry| {
-                const key_copy = try allocator.dupe(u8, entry.key_ptr.*);
-                try result.object.put(key_copy, try jsonToValueOwned(allocator, entry.value_ptr.*));
-            }
-            break :blk result;
-        },
-        .number_string => liquidz.Value.initNil(),
-    };
-}
-
 fn renderFromJson(
     template: []const u8,
     json_data: []const u8,
@@ -48,8 +16,7 @@ fn renderFromJson(
 
     var context = liquidz.Value.initNil();
     if (json_data.len > 0) {
-        const parsed = try std.json.parseFromSlice(std.json.Value, arena_alloc, json_data, .{});
-        context = try jsonToValueOwned(arena_alloc, parsed.value);
+        context = try liquidz.Value.parseJson(arena_alloc, json_data);
     }
 
     const rendered = try liquidz.render(allocator, template, context);

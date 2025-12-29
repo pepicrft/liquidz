@@ -13,7 +13,7 @@ pub const Value = union(enum) {
     array: []const Value,
     object: ObjectMap,
 
-    const ObjectMap = struct {
+    pub const ObjectMap = struct {
         allocator: Allocator,
         map: std.StringHashMap(Value),
 
@@ -90,33 +90,30 @@ pub const Value = union(enum) {
         }
     }
 
-    /// Check if the value is truthy (not nil and not false and not empty)
+    /// Check if the value is truthy (Liquid only considers nil and false as falsy)
     pub fn isTruthy(self: Self) bool {
         return switch (self) {
             .nil => false,
             .boolean => |b| b,
-            .string => |s| s.len > 0,
-            .array => |arr| arr.len > 0,
-            .object => |obj| obj.count() > 0,
-            .integer, .float => true,
+            // In Liquid, everything except nil and false is truthy
+            .string, .array, .object, .integer, .float => true,
         };
+    }
+
+    fn arrayGet(arr: []const Value, idx: i64) ?Value {
+        if (idx < 0) {
+            const uidx: usize = @intCast(-idx);
+            return if (uidx > arr.len) null else arr[arr.len - uidx];
+        }
+        const uidx: usize = @intCast(idx);
+        return if (uidx >= arr.len) null else arr[uidx];
     }
 
     /// Get a property from the value (for objects and arrays)
     pub fn get(self: Self, key: []const u8) ?Value {
         return switch (self) {
             .object => |obj| obj.get(key),
-            .array => |arr| {
-                const idx = std.fmt.parseInt(i64, key, 10) catch return null;
-                if (idx < 0) {
-                    const uidx = @as(usize, @intCast(-idx));
-                    if (uidx > arr.len) return null;
-                    return arr[arr.len - uidx];
-                }
-                const uidx = @as(usize, @intCast(idx));
-                if (uidx >= arr.len) return null;
-                return arr[uidx];
-            },
+            .array => |arr| arrayGet(arr, std.fmt.parseInt(i64, key, 10) catch return null),
             else => null,
         };
     }
@@ -124,16 +121,7 @@ pub const Value = union(enum) {
     /// Get array item by index
     pub fn getIndex(self: Self, idx: i64) ?Value {
         return switch (self) {
-            .array => |arr| {
-                if (idx < 0) {
-                    const uidx = @as(usize, @intCast(-idx));
-                    if (uidx > arr.len) return null;
-                    return arr[arr.len - uidx];
-                }
-                const uidx = @as(usize, @intCast(idx));
-                if (uidx >= arr.len) return null;
-                return arr[uidx];
-            },
+            .array => |arr| arrayGet(arr, idx),
             else => null,
         };
     }
@@ -195,55 +183,80 @@ pub const Value = union(enum) {
 
     /// Compare two values for equality
     pub fn eql(self: Self, other: Self) bool {
-        return switch (self) {
-            .nil => other == .nil,
-            .boolean => |b| switch (other) {
-                .boolean => |ob| b == ob,
-                else => false,
-            },
-            .integer => |i| switch (other) {
+        switch (self) {
+            .nil => return other == .nil,
+            .boolean => |b| return other == .boolean and b == other.boolean,
+            .integer => |i| return switch (other) {
                 .integer => |oi| i == oi,
                 .float => |of| @as(f64, @floatFromInt(i)) == of,
                 else => false,
             },
-            .float => |f| switch (other) {
+            .float => |f| return switch (other) {
                 .float => |of| f == of,
                 .integer => |oi| f == @as(f64, @floatFromInt(oi)),
                 else => false,
             },
-            .string => |s| switch (other) {
-                .string => |os| std.mem.eql(u8, s, os),
-                else => false,
+            .string => |s| return other == .string and std.mem.eql(u8, s, other.string),
+            .array => |arr| {
+                if (other != .array or arr.len != other.array.len) return false;
+                for (arr, other.array) |a, b| {
+                    if (!a.eql(b)) return false;
+                }
+                return true;
             },
-            .array => |arr| switch (other) {
-                .array => |oarr| {
-                    if (arr.len != oarr.len) return false;
-                    for (arr, oarr) |a, b| {
-                        if (!a.eql(b)) return false;
-                    }
-                    return true;
-                },
-                else => false,
-            },
-            .object => false, // Object comparison not commonly needed
-        };
+            .object => return false,
+        }
     }
 
-    /// Check if value contains another value (for arrays)
+    /// Check if value contains another value (for arrays or substrings)
     pub fn contains(self: Self, needle: Value) bool {
-        return switch (self) {
+        switch (self) {
             .array => |arr| {
                 for (arr) |item| {
                     if (item.eql(needle)) return true;
                 }
                 return false;
             },
-            .string => |s| switch (needle) {
-                .string => |ns| std.mem.indexOf(u8, s, ns) != null,
-                else => false,
+            .string => |s| return needle == .string and std.mem.indexOf(u8, s, needle.string) != null,
+            else => return false,
+        }
+    }
+
+    /// Convert a std.json.Value to a liquidz Value, copying all strings
+    pub fn fromJson(allocator: Allocator, json: std.json.Value) !Self {
+        return switch (json) {
+            .null => Self.initNil(),
+            .bool => |b| Self.initBool(b),
+            .integer => |i| Self.initInt(i),
+            .float => |f| Self.initFloat(f),
+            .string => |s| Self.initString(try allocator.dupe(u8, s)),
+            .array => |arr| blk: {
+                var result: std.ArrayList(Self) = .empty;
+                for (arr.items) |item| {
+                    try result.append(allocator, try fromJson(allocator, item));
+                }
+                break :blk Self.initArray(try result.toOwnedSlice(allocator));
             },
-            else => false,
+            .object => |obj| blk: {
+                var result = Self.initObject(allocator);
+                var it = obj.iterator();
+                while (it.next()) |entry| {
+                    const key_copy = try allocator.dupe(u8, entry.key_ptr.*);
+                    try result.object.put(key_copy, try fromJson(allocator, entry.value_ptr.*));
+                }
+                break :blk result;
+            },
+            .number_string => Self.initNil(),
         };
+    }
+
+    /// Parse a JSON string and convert to Value
+    pub fn parseJson(allocator: Allocator, json_str: []const u8) !Self {
+        const parsed = std.json.parseFromSlice(std.json.Value, allocator, json_str, .{}) catch {
+            return Self.initNil();
+        };
+        defer parsed.deinit();
+        return fromJson(allocator, parsed.value);
     }
 };
 

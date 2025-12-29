@@ -330,6 +330,17 @@ pub const Lexer = struct {
         self.tag_token_count += 1;
     }
 
+    fn emitToken(self: *Self, token_type: TokenType, value: []const u8, advance_count: u8) !TokenType {
+        try self.tokens.append(self.allocator, Token.init(token_type, value, self.line, self.column));
+        var i: u8 = 0;
+        while (i < advance_count) : (i += 1) self.advance();
+        return token_type;
+    }
+
+    fn peekNext(self: *Self) u8 {
+        return if (self.pos + 1 < self.source.len) self.source[self.pos + 1] else 0;
+    }
+
     fn tokenizeExpression(self: *Self) !TokenType {
         const c = self.peek();
 
@@ -340,7 +351,7 @@ pub const Lexer = struct {
         }
 
         // Numbers
-        if (std.ascii.isDigit(c) or (c == '-' and self.pos + 1 < self.source.len and std.ascii.isDigit(self.source[self.pos + 1]))) {
+        if (std.ascii.isDigit(c) or (c == '-' and std.ascii.isDigit(self.peekNext()))) {
             try self.tokenizeNumber();
             return if (self.tokens.items.len > 0) self.tokens.items[self.tokens.items.len - 1].type else .err;
         }
@@ -351,114 +362,22 @@ pub const Lexer = struct {
             return if (self.tokens.items.len > 0) self.tokens.items[self.tokens.items.len - 1].type else .err;
         }
 
-        // Operators and punctuation
-        switch (c) {
-            '|' => {
-                try self.tokens.append(self.allocator, Token.init(.pipe, "|", self.line, self.column));
-                self.advance();
-                return .pipe;
-            },
-            '.' => {
-                if (self.pos + 1 < self.source.len and self.source[self.pos + 1] == '.') {
-                    try self.tokens.append(self.allocator, Token.init(.range, "..", self.line, self.column));
-                    self.advance();
-                    self.advance();
-                    return .range;
-                } else {
-                    try self.tokens.append(self.allocator, Token.init(.dot, ".", self.line, self.column));
-                    self.advance();
-                    return .dot;
-                }
-            },
-            ',' => {
-                try self.tokens.append(self.allocator, Token.init(.comma, ",", self.line, self.column));
-                self.advance();
-                return .comma;
-            },
-            ':' => {
-                try self.tokens.append(self.allocator, Token.init(.colon, ":", self.line, self.column));
-                self.advance();
-                return .colon;
-            },
-            '(' => {
-                try self.tokens.append(self.allocator, Token.init(.lparen, "(", self.line, self.column));
-                self.advance();
-                return .lparen;
-            },
-            ')' => {
-                try self.tokens.append(self.allocator, Token.init(.rparen, ")", self.line, self.column));
-                self.advance();
-                return .rparen;
-            },
-            '[' => {
-                try self.tokens.append(self.allocator, Token.init(.lbracket, "[", self.line, self.column));
-                self.advance();
-                return .lbracket;
-            },
-            ']' => {
-                try self.tokens.append(self.allocator, Token.init(.rbracket, "]", self.line, self.column));
-                self.advance();
-                return .rbracket;
-            },
-            '=' => {
-                if (self.pos + 1 < self.source.len and self.source[self.pos + 1] == '=') {
-                    try self.tokens.append(self.allocator, Token.init(.eq, "==", self.line, self.column));
-                    self.advance();
-                    self.advance();
-                    return .eq;
-                } else {
-                    try self.tokens.append(self.allocator, Token.init(.assign, "=", self.line, self.column));
-                    self.advance();
-                    return .assign;
-                }
-            },
-            '!' => {
-                if (self.pos + 1 < self.source.len and self.source[self.pos + 1] == '=') {
-                    try self.tokens.append(self.allocator, Token.init(.ne, "!=", self.line, self.column));
-                    self.advance();
-                    self.advance();
-                    return .ne;
-                } else {
-                    try self.tokens.append(self.allocator, Token.init(.err, "Unexpected character: !", self.line, self.column));
-                    self.advance();
-                    return .err;
-                }
-            },
-            '<' => {
-                if (self.pos + 1 < self.source.len and self.source[self.pos + 1] == '=') {
-                    try self.tokens.append(self.allocator, Token.init(.le, "<=", self.line, self.column));
-                    self.advance();
-                    self.advance();
-                    return .le;
-                } else if (self.pos + 1 < self.source.len and self.source[self.pos + 1] == '>') {
-                    try self.tokens.append(self.allocator, Token.init(.ne, "<>", self.line, self.column));
-                    self.advance();
-                    self.advance();
-                    return .ne;
-                } else {
-                    try self.tokens.append(self.allocator, Token.init(.lt, "<", self.line, self.column));
-                    self.advance();
-                    return .lt;
-                }
-            },
-            '>' => {
-                if (self.pos + 1 < self.source.len and self.source[self.pos + 1] == '=') {
-                    try self.tokens.append(self.allocator, Token.init(.ge, ">=", self.line, self.column));
-                    self.advance();
-                    self.advance();
-                    return .ge;
-                } else {
-                    try self.tokens.append(self.allocator, Token.init(.gt, ">", self.line, self.column));
-                    self.advance();
-                    return .gt;
-                }
-            },
-            else => {
-                try self.tokens.append(self.allocator, Token.init(.err, self.source[self.pos .. self.pos + 1], self.line, self.column));
-                self.advance();
-                return .err;
-            },
-        }
+        // Single-char operators
+        return switch (c) {
+            '|' => self.emitToken(.pipe, "|", 1),
+            ',' => self.emitToken(.comma, ",", 1),
+            ':' => self.emitToken(.colon, ":", 1),
+            '(' => self.emitToken(.lparen, "(", 1),
+            ')' => self.emitToken(.rparen, ")", 1),
+            '[' => self.emitToken(.lbracket, "[", 1),
+            ']' => self.emitToken(.rbracket, "]", 1),
+            '.' => if (self.peekNext() == '.') self.emitToken(.range, "..", 2) else self.emitToken(.dot, ".", 1),
+            '=' => if (self.peekNext() == '=') self.emitToken(.eq, "==", 2) else self.emitToken(.assign, "=", 1),
+            '!' => if (self.peekNext() == '=') self.emitToken(.ne, "!=", 2) else self.emitToken(.err, "Unexpected character: !", 1),
+            '<' => if (self.peekNext() == '=') self.emitToken(.le, "<=", 2) else if (self.peekNext() == '>') self.emitToken(.ne, "<>", 2) else self.emitToken(.lt, "<", 1),
+            '>' => if (self.peekNext() == '=') self.emitToken(.ge, ">=", 2) else self.emitToken(.gt, ">", 1),
+            else => self.emitToken(.err, self.source[self.pos .. self.pos + 1], 1),
+        };
     }
 
     fn tokenizeLiquidContent(self: *Self) !void {
@@ -585,61 +504,60 @@ pub const Lexer = struct {
         try self.tokens.append(self.allocator, Token.init(token_type, value, start_line, start_col));
     }
 
-    fn getKeywordType(self: *Self, value: []const u8) TokenType {
-        _ = self;
-        const keywords = std.StaticStringMap(TokenType).initComptime(.{
-            .{ "if", .kw_if },
-            .{ "elsif", .kw_elsif },
-            .{ "else", .kw_else },
-            .{ "endif", .kw_endif },
-            .{ "unless", .kw_unless },
-            .{ "endunless", .kw_endunless },
-            .{ "case", .kw_case },
-            .{ "when", .kw_when },
-            .{ "endcase", .kw_endcase },
-            .{ "for", .kw_for },
-            .{ "endfor", .kw_endfor },
-            .{ "break", .kw_break },
-            .{ "continue", .kw_continue },
-            .{ "in", .kw_in },
-            .{ "assign", .kw_assign },
-            .{ "capture", .kw_capture },
-            .{ "endcapture", .kw_endcapture },
-            .{ "increment", .kw_increment },
-            .{ "decrement", .kw_decrement },
-            .{ "cycle", .kw_cycle },
-            .{ "tablerow", .kw_tablerow },
-            .{ "endtablerow", .kw_endtablerow },
-            .{ "include", .kw_include },
-            .{ "render", .kw_render },
-            .{ "raw", .kw_raw },
-            .{ "endraw", .kw_endraw },
-            .{ "comment", .kw_comment },
-            .{ "endcomment", .kw_endcomment },
-            .{ "liquid", .kw_liquid },
-            .{ "echo", .kw_echo },
-            .{ "and", .kw_and },
-            .{ "or", .kw_or },
-            .{ "not", .kw_not },
-            .{ "contains", .kw_contains },
-            .{ "with", .kw_with },
-            .{ "as", .kw_as },
-            .{ "limit", .kw_limit },
-            .{ "offset", .kw_offset },
-            .{ "reversed", .kw_reversed },
-            .{ "cols", .kw_cols },
-            .{ "nil", .nil },
-            .{ "null", .nil },
-            .{ "true", .true_lit },
-            .{ "false", .false_lit },
-            .{ "blank", .blank },
-            .{ "empty", .empty },
-            .{ "ifchanged", .kw_ifchanged },
-            .{ "endifchanged", .kw_endifchanged },
-            .{ "doc", .kw_doc },
-            .{ "enddoc", .kw_enddoc },
-        });
+    const keywords = std.StaticStringMap(TokenType).initComptime(.{
+        .{ "if", .kw_if },
+        .{ "elsif", .kw_elsif },
+        .{ "else", .kw_else },
+        .{ "endif", .kw_endif },
+        .{ "unless", .kw_unless },
+        .{ "endunless", .kw_endunless },
+        .{ "case", .kw_case },
+        .{ "when", .kw_when },
+        .{ "endcase", .kw_endcase },
+        .{ "for", .kw_for },
+        .{ "endfor", .kw_endfor },
+        .{ "break", .kw_break },
+        .{ "continue", .kw_continue },
+        .{ "in", .kw_in },
+        .{ "assign", .kw_assign },
+        .{ "capture", .kw_capture },
+        .{ "endcapture", .kw_endcapture },
+        .{ "increment", .kw_increment },
+        .{ "decrement", .kw_decrement },
+        .{ "cycle", .kw_cycle },
+        .{ "tablerow", .kw_tablerow },
+        .{ "endtablerow", .kw_endtablerow },
+        .{ "include", .kw_include },
+        .{ "render", .kw_render },
+        .{ "raw", .kw_raw },
+        .{ "endraw", .kw_endraw },
+        .{ "comment", .kw_comment },
+        .{ "endcomment", .kw_endcomment },
+        .{ "liquid", .kw_liquid },
+        .{ "echo", .kw_echo },
+        .{ "and", .kw_and },
+        .{ "or", .kw_or },
+        .{ "not", .kw_not },
+        .{ "contains", .kw_contains },
+        .{ "with", .kw_with },
+        .{ "as", .kw_as },
+        .{ "limit", .kw_limit },
+        .{ "offset", .kw_offset },
+        .{ "reversed", .kw_reversed },
+        .{ "cols", .kw_cols },
+        .{ "nil", .nil },
+        .{ "null", .nil },
+        .{ "true", .true_lit },
+        .{ "false", .false_lit },
+        .{ "blank", .blank },
+        .{ "empty", .empty },
+        .{ "ifchanged", .kw_ifchanged },
+        .{ "endifchanged", .kw_endifchanged },
+        .{ "doc", .kw_doc },
+        .{ "enddoc", .kw_enddoc },
+    });
 
+    fn getKeywordType(_: *Self, value: []const u8) TokenType {
         return keywords.get(value) orelse .identifier;
     }
 

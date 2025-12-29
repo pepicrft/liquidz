@@ -122,85 +122,60 @@ pub const Renderer = struct {
         };
     }
 
-    fn applyOverrides(self: *Self, overrides: []const LocalOverride, backups: *std.ArrayList(LocalBackup)) RenderError!void {
+    fn applyOverrides(self: *Self, overrides: []const LocalOverride, backups: *std.ArrayList(LocalBackup)) !void {
         for (overrides) |entry| {
-            if (self.local_vars.get(entry.name)) |old| {
-                backups.append(self.allocator, .{ .name = entry.name, .had = true, .value = old }) catch return RenderError.OutOfMemory;
-            } else {
-                backups.append(self.allocator, .{ .name = entry.name, .had = false, .value = Value.initNil() }) catch return RenderError.OutOfMemory;
-            }
-            self.local_vars.put(entry.name, entry.value) catch return RenderError.OutOfMemory;
+            const backup: LocalBackup = if (self.local_vars.get(entry.name)) |old|
+                .{ .name = entry.name, .had = true, .value = old }
+            else
+                .{ .name = entry.name, .had = false, .value = Value.initNil() };
+            try backups.append(self.allocator, backup);
+            try self.local_vars.put(entry.name, entry.value);
         }
     }
 
     fn restoreOverrides(self: *Self, backups: *std.ArrayList(LocalBackup)) void {
-        var i = backups.items.len;
-        while (i > 0) {
-            i -= 1;
-            const entry = backups.items[i];
+        defer backups.deinit(self.allocator);
+        var it = std.mem.reverseIterator(backups.items);
+        while (it.next()) |entry| {
             if (entry.had) {
                 self.local_vars.put(entry.name, entry.value) catch {};
             } else {
                 _ = self.local_vars.fetchRemove(entry.name);
             }
         }
-        backups.deinit(self.allocator);
     }
 
-    fn buildContinueKey(self: *Self, node: Node) RenderError![]const u8 {
+    fn buildContinueKey(self: *Self, node: Node) ![]const u8 {
         var list: std.ArrayList(u8) = .empty;
         try self.appendNodeKey(&list, node);
-        return list.toOwnedSlice(self.allocator) catch return RenderError.OutOfMemory;
+        return try list.toOwnedSlice(self.allocator);
     }
 
-    fn appendNodeKey(self: *Self, list: *std.ArrayList(u8), node: Node) RenderError!void {
+    fn appendNodeKey(self: *Self, list: *std.ArrayList(u8), node: Node) !void {
         switch (node.type) {
-            .variable => if (node.value) |v| {
-                list.appendSlice(self.allocator, v) catch return RenderError.OutOfMemory;
-            },
-            .literal_string,
-            .literal_integer,
-            .literal_float,
-            .literal_bool,
-            .literal_nil,
-            => if (node.value) |v| {
-                list.appendSlice(self.allocator, v) catch return RenderError.OutOfMemory;
-            } else {
-                list.appendSlice(self.allocator, "nil") catch return RenderError.OutOfMemory;
+            .variable => if (node.value) |v| try list.appendSlice(self.allocator, v),
+            .literal_string, .literal_integer, .literal_float, .literal_bool, .literal_nil => {
+                try list.appendSlice(self.allocator, node.value orelse "nil");
             },
             .property_access => {
-                if (node.children.items.len > 0) {
-                    try self.appendNodeKey(list, node.children.items[0]);
-                }
-                list.append(self.allocator, '.') catch return RenderError.OutOfMemory;
-                if (node.value) |v| {
-                    list.appendSlice(self.allocator, v) catch return RenderError.OutOfMemory;
-                }
+                if (node.children.items.len > 0) try self.appendNodeKey(list, node.children.items[0]);
+                try list.append(self.allocator, '.');
+                if (node.value) |v| try list.appendSlice(self.allocator, v);
             },
             .index_access => {
-                if (node.children.items.len > 0) {
-                    try self.appendNodeKey(list, node.children.items[0]);
-                }
-                list.append(self.allocator, '[') catch return RenderError.OutOfMemory;
-                if (node.children.items.len > 1) {
-                    try self.appendNodeKey(list, node.children.items[1]);
-                }
-                list.append(self.allocator, ']') catch return RenderError.OutOfMemory;
+                if (node.children.items.len > 0) try self.appendNodeKey(list, node.children.items[0]);
+                try list.append(self.allocator, '[');
+                if (node.children.items.len > 1) try self.appendNodeKey(list, node.children.items[1]);
+                try list.append(self.allocator, ']');
             },
             .range => {
-                list.appendSlice(self.allocator, "(") catch return RenderError.OutOfMemory;
-                if (node.children.items.len > 0) {
-                    try self.appendNodeKey(list, node.children.items[0]);
-                }
-                list.appendSlice(self.allocator, "..") catch return RenderError.OutOfMemory;
-                if (node.children.items.len > 1) {
-                    try self.appendNodeKey(list, node.children.items[1]);
-                }
-                list.appendSlice(self.allocator, ")") catch return RenderError.OutOfMemory;
+                try list.appendSlice(self.allocator, "(");
+                if (node.children.items.len > 0) try self.appendNodeKey(list, node.children.items[0]);
+                try list.appendSlice(self.allocator, "..");
+                if (node.children.items.len > 1) try self.appendNodeKey(list, node.children.items[1]);
+                try list.appendSlice(self.allocator, ")");
             },
-            else => {
-                list.appendSlice(self.allocator, "<expr>") catch return RenderError.OutOfMemory;
-            },
+            else => try list.appendSlice(self.allocator, "<expr>"),
         }
     }
 
@@ -478,46 +453,30 @@ pub const Renderer = struct {
         return Value.initBool(result);
     }
 
-    fn compareLess(self: *Self, left: Value, right: Value) bool {
-        _ = self;
-        return switch (left) {
-            .integer => |l| switch (right) {
-                .integer => |r| l < r,
-                .float => |r| @as(f64, @floatFromInt(l)) < r,
-                else => false,
-            },
-            .float => |l| switch (right) {
-                .float => |r| l < r,
-                .integer => |r| l < @as(f64, @floatFromInt(r)),
-                else => false,
-            },
-            .string => |l| switch (right) {
-                .string => |r| std.mem.lessThan(u8, l, r),
-                else => false,
-            },
-            else => false,
+    fn toNumericPair(left: Value, right: Value) ?struct { l: f64, r: f64 } {
+        const l: f64 = switch (left) {
+            .integer => |i| @floatFromInt(i),
+            .float => |f| f,
+            else => return null,
         };
+        const r: f64 = switch (right) {
+            .integer => |i| @floatFromInt(i),
+            .float => |f| f,
+            else => return null,
+        };
+        return .{ .l = l, .r = r };
     }
 
-    fn compareGreater(self: *Self, left: Value, right: Value) bool {
-        _ = self;
-        return switch (left) {
-            .integer => |l| switch (right) {
-                .integer => |r| l > r,
-                .float => |r| @as(f64, @floatFromInt(l)) > r,
-                else => false,
-            },
-            .float => |l| switch (right) {
-                .float => |r| l > r,
-                .integer => |r| l > @as(f64, @floatFromInt(r)),
-                else => false,
-            },
-            .string => |l| switch (right) {
-                .string => |r| std.mem.order(u8, l, r) == .gt,
-                else => false,
-            },
-            else => false,
-        };
+    fn compareLess(_: *Self, left: Value, right: Value) bool {
+        if (toNumericPair(left, right)) |pair| return pair.l < pair.r;
+        if (left == .string and right == .string) return std.mem.lessThan(u8, left.string, right.string);
+        return false;
+    }
+
+    fn compareGreater(_: *Self, left: Value, right: Value) bool {
+        if (toNumericPair(left, right)) |pair| return pair.l > pair.r;
+        if (left == .string and right == .string) return std.mem.order(u8, left.string, right.string) == .gt;
+        return false;
     }
 
     fn compareLessOrEqual(self: *Self, left: Value, right: Value) bool {
@@ -554,146 +513,94 @@ pub const Renderer = struct {
         return self.executeFilter(name, value, args);
     }
 
-    fn executeFilter(self: *Self, name: []const u8, value: Value, args: []const Node) RenderError!Value {
-        // String filters
-        if (std.mem.eql(u8, name, "upcase")) {
-            return self.filterUpcase(value);
-        } else if (std.mem.eql(u8, name, "downcase")) {
-            return self.filterDowncase(value);
-        } else if (std.mem.eql(u8, name, "capitalize")) {
-            return self.filterCapitalize(value);
-        } else if (std.mem.eql(u8, name, "strip")) {
-            return self.filterStrip(value);
-        } else if (std.mem.eql(u8, name, "lstrip")) {
-            return self.filterLstrip(value);
-        } else if (std.mem.eql(u8, name, "rstrip")) {
-            return self.filterRstrip(value);
-        } else if (std.mem.eql(u8, name, "strip_html")) {
-            return self.filterStripHtml(value);
-        } else if (std.mem.eql(u8, name, "strip_newlines")) {
-            return self.filterStripNewlines(value);
-        } else if (std.mem.eql(u8, name, "newline_to_br")) {
-            return self.filterNewlineToBr(value);
-        } else if (std.mem.eql(u8, name, "escape")) {
-            return self.filterEscape(value);
-        } else if (std.mem.eql(u8, name, "escape_once")) {
-            return self.filterEscapeOnce(value);
-        } else if (std.mem.eql(u8, name, "url_encode")) {
-            return self.filterUrlEncode(value);
-        } else if (std.mem.eql(u8, name, "url_decode")) {
-            return self.filterUrlDecode(value);
-        } else if (std.mem.eql(u8, name, "append")) {
-            return self.filterAppend(value, args);
-        } else if (std.mem.eql(u8, name, "prepend")) {
-            return self.filterPrepend(value, args);
-        } else if (std.mem.eql(u8, name, "remove")) {
-            return self.filterRemove(value, args);
-        } else if (std.mem.eql(u8, name, "remove_first")) {
-            return self.filterRemoveFirst(value, args);
-        } else if (std.mem.eql(u8, name, "remove_last")) {
-            return self.filterRemoveLast(value, args);
-        } else if (std.mem.eql(u8, name, "replace")) {
-            return self.filterReplace(value, args);
-        } else if (std.mem.eql(u8, name, "replace_first")) {
-            return self.filterReplaceFirst(value, args);
-        } else if (std.mem.eql(u8, name, "replace_last")) {
-            return self.filterReplaceLast(value, args);
-        } else if (std.mem.eql(u8, name, "split")) {
-            return self.filterSplit(value, args);
-        } else if (std.mem.eql(u8, name, "truncate")) {
-            return self.filterTruncate(value, args);
-        } else if (std.mem.eql(u8, name, "truncatewords")) {
-            return self.filterTruncatewords(value, args);
-        } else if (std.mem.eql(u8, name, "slice")) {
-            return self.filterSlice(value, args);
-        }
-        // Array filters
-        else if (std.mem.eql(u8, name, "size")) {
-            return Value.initInt(value.size());
-        } else if (std.mem.eql(u8, name, "first")) {
-            return self.filterFirst(value);
-        } else if (std.mem.eql(u8, name, "last")) {
-            return self.filterLast(value);
-        } else if (std.mem.eql(u8, name, "join")) {
-            return self.filterJoin(value, args);
-        } else if (std.mem.eql(u8, name, "reverse")) {
-            return self.filterReverse(value);
-        } else if (std.mem.eql(u8, name, "sort")) {
-            return self.filterSort(value);
-        } else if (std.mem.eql(u8, name, "sort_natural")) {
-            return self.filterSortNatural(value);
-        } else if (std.mem.eql(u8, name, "uniq")) {
-            return self.filterUniq(value);
-        } else if (std.mem.eql(u8, name, "compact")) {
-            return self.filterCompact(value, args);
-        } else if (std.mem.eql(u8, name, "concat")) {
-            return self.filterConcat(value, args);
-        } else if (std.mem.eql(u8, name, "map")) {
-            return self.filterMap(value, args);
-        } else if (std.mem.eql(u8, name, "where")) {
-            return self.filterWhere(value, args);
-        }
-        // Additional array filters
-        else if (std.mem.eql(u8, name, "find")) {
-            return self.filterFind(value, args);
-        } else if (std.mem.eql(u8, name, "find_index")) {
-            return self.filterFindIndex(value, args);
-        } else if (std.mem.eql(u8, name, "has")) {
-            return self.filterHas(value, args);
-        } else if (std.mem.eql(u8, name, "reject")) {
-            return self.filterReject(value, args);
-        } else if (std.mem.eql(u8, name, "sum")) {
-            return self.filterSum(value);
-        }
-        // Math filters
-        else if (std.mem.eql(u8, name, "plus")) {
-            return self.filterPlus(value, args);
-        } else if (std.mem.eql(u8, name, "minus")) {
-            return self.filterMinus(value, args);
-        } else if (std.mem.eql(u8, name, "times")) {
-            return self.filterTimes(value, args);
-        } else if (std.mem.eql(u8, name, "divided_by")) {
-            return self.filterDividedBy(value, args);
-        } else if (std.mem.eql(u8, name, "modulo")) {
-            return self.filterModulo(value, args);
-        } else if (std.mem.eql(u8, name, "abs")) {
-            return self.filterAbs(value);
-        } else if (std.mem.eql(u8, name, "ceil")) {
-            return self.filterCeil(value);
-        } else if (std.mem.eql(u8, name, "floor")) {
-            return self.filterFloor(value);
-        } else if (std.mem.eql(u8, name, "round")) {
-            return self.filterRound(value, args);
-        } else if (std.mem.eql(u8, name, "at_least")) {
-            return self.filterAtLeast(value, args);
-        } else if (std.mem.eql(u8, name, "at_most")) {
-            return self.filterAtMost(value, args);
-        }
-        // Default filter
-        else if (std.mem.eql(u8, name, "default")) {
-            return self.filterDefault(value, args);
-        }
-        // Base64 filters
-        else if (std.mem.eql(u8, name, "base64_encode")) {
-            return self.filterBase64Encode(value);
-        } else if (std.mem.eql(u8, name, "base64_decode")) {
-            return self.filterBase64Decode(value);
-        } else if (std.mem.eql(u8, name, "base64_url_safe_encode")) {
-            return self.filterBase64UrlSafeEncode(value);
-        } else if (std.mem.eql(u8, name, "base64_url_safe_decode")) {
-            return self.filterBase64UrlSafeDecode(value);
-        }
-        // Hash and encoding filters
-        else if (std.mem.eql(u8, name, "json")) {
-            return self.filterJson(value);
-        } else if (std.mem.eql(u8, name, "sha256")) {
-            return self.filterSha256(value);
-        } else if (std.mem.eql(u8, name, "md5")) {
-            return self.filterMd5(value);
-        } else if (std.mem.eql(u8, name, "date")) {
-            return self.filterDate(value, args);
-        }
+    const FilterFn = *const fn (*Self, Value, []const Node) RenderError!Value;
 
+    const filter_table = std.StaticStringMap(FilterFn).initComptime(.{
+        // String filters
+        .{ "upcase", wrapNoArgs(filterUpcase) },
+        .{ "downcase", wrapNoArgs(filterDowncase) },
+        .{ "capitalize", wrapNoArgs(filterCapitalize) },
+        .{ "strip", wrapNoArgs(filterStrip) },
+        .{ "lstrip", wrapNoArgs(filterLstrip) },
+        .{ "rstrip", wrapNoArgs(filterRstrip) },
+        .{ "strip_html", wrapNoArgs(filterStripHtml) },
+        .{ "strip_newlines", wrapNoArgs(filterStripNewlines) },
+        .{ "newline_to_br", wrapNoArgs(filterNewlineToBr) },
+        .{ "escape", wrapNoArgs(filterEscape) },
+        .{ "escape_once", wrapNoArgs(filterEscapeOnce) },
+        .{ "url_encode", wrapNoArgs(filterUrlEncode) },
+        .{ "url_decode", wrapNoArgs(filterUrlDecode) },
+        .{ "append", filterAppend },
+        .{ "prepend", filterPrepend },
+        .{ "remove", filterRemove },
+        .{ "remove_first", filterRemoveFirst },
+        .{ "remove_last", filterRemoveLast },
+        .{ "replace", filterReplace },
+        .{ "replace_first", filterReplaceFirst },
+        .{ "replace_last", filterReplaceLast },
+        .{ "split", filterSplit },
+        .{ "truncate", filterTruncate },
+        .{ "truncatewords", filterTruncatewords },
+        .{ "slice", filterSlice },
+        // Array filters
+        .{ "size", wrapSize },
+        .{ "first", wrapNoArgs(filterFirst) },
+        .{ "last", wrapNoArgs(filterLast) },
+        .{ "join", filterJoin },
+        .{ "reverse", wrapNoArgs(filterReverse) },
+        .{ "sort", wrapNoArgs(filterSort) },
+        .{ "sort_natural", wrapNoArgs(filterSortNatural) },
+        .{ "uniq", wrapNoArgs(filterUniq) },
+        .{ "compact", filterCompact },
+        .{ "concat", filterConcat },
+        .{ "map", filterMap },
+        .{ "where", filterWhere },
+        .{ "find", filterFind },
+        .{ "find_index", filterFindIndex },
+        .{ "has", filterHas },
+        .{ "reject", filterReject },
+        .{ "sum", wrapNoArgs(filterSum) },
+        // Math filters
+        .{ "plus", filterPlus },
+        .{ "minus", filterMinus },
+        .{ "times", filterTimes },
+        .{ "divided_by", filterDividedBy },
+        .{ "modulo", filterModulo },
+        .{ "abs", wrapNoArgs(filterAbs) },
+        .{ "ceil", wrapNoArgs(filterCeil) },
+        .{ "floor", wrapNoArgs(filterFloor) },
+        .{ "round", filterRound },
+        .{ "at_least", filterAtLeast },
+        .{ "at_most", filterAtMost },
+        .{ "default", filterDefault },
+        // Base64 filters
+        .{ "base64_encode", wrapNoArgs(filterBase64Encode) },
+        .{ "base64_decode", wrapNoArgs(filterBase64Decode) },
+        .{ "base64_url_safe_encode", wrapNoArgs(filterBase64UrlSafeEncode) },
+        .{ "base64_url_safe_decode", wrapNoArgs(filterBase64UrlSafeDecode) },
+        // Hash and encoding filters
+        .{ "json", wrapNoArgs(filterJson) },
+        .{ "sha256", wrapNoArgs(filterSha256) },
+        .{ "md5", wrapNoArgs(filterMd5) },
+        .{ "date", filterDate },
+    });
+
+    fn wrapNoArgs(comptime func: fn (*Self, Value) RenderError!Value) FilterFn {
+        return struct {
+            fn wrapper(self: *Self, value: Value, _: []const Node) RenderError!Value {
+                return func(self, value);
+            }
+        }.wrapper;
+    }
+
+    fn wrapSize(_: *Self, value: Value, _: []const Node) RenderError!Value {
+        return Value.initInt(value.size());
+    }
+
+    fn executeFilter(self: *Self, name: []const u8, value: Value, args: []const Node) RenderError!Value {
+        if (filter_table.get(name)) |filter_fn| {
+            return filter_fn(self, value, args);
+        }
         return value;
     }
 
@@ -1269,10 +1176,14 @@ pub const Renderer = struct {
         switch (value) {
             .array => |arr| {
                 var result: std.ArrayList(u8) = .empty;
-                for (arr, 0..) |item, i| {
-                    if (i > 0) result.appendSlice(self.workAllocator(), delimiter) catch return RenderError.OutOfMemory;
+                var first = true;
+                for (arr) |item| {
                     const s = item.toString(self.workAllocator()) catch return RenderError.OutOfMemory;
+                    // Skip empty strings (from empty arrays, nil, etc.)
+                    if (s.len == 0) continue;
+                    if (!first) result.appendSlice(self.workAllocator(), delimiter) catch return RenderError.OutOfMemory;
                     result.appendSlice(self.workAllocator(), s) catch return RenderError.OutOfMemory;
+                    first = false;
                 }
                 return Value.initString(result.toOwnedSlice(self.workAllocator()) catch return RenderError.OutOfMemory);
             },
@@ -1851,14 +1762,13 @@ pub const Renderer = struct {
         }
     }
 
-    // Base64 filters
-    fn filterBase64Encode(self: *Self, value: Value) RenderError!Value {
-        const str = value.toString(self.workAllocator()) catch return RenderError.OutOfMemory;
-        if (str.len == 0) return Value.initString("");
+    // Base64 encoding/decoding helpers
+    const base64_standard = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const base64_url_safe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-        const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    fn base64Encode(allocator: Allocator, str: []const u8, alphabet: []const u8) RenderError![]u8 {
         const encoded_len = ((str.len + 2) / 3) * 4;
-        var result = self.workAllocator().alloc(u8, encoded_len) catch return RenderError.OutOfMemory;
+        var result = allocator.alloc(u8, encoded_len) catch return RenderError.OutOfMemory;
 
         var i: usize = 0;
         var j: usize = 0;
@@ -1877,125 +1787,66 @@ pub const Renderer = struct {
             i += 3;
             j += 4;
         }
+        return result;
+    }
 
-        return Value.initString(result);
+    fn base64IndexOf(c: u8, alphabet: []const u8) u32 {
+        for (alphabet, 0..) |a, idx| {
+            if (a == c) return @intCast(idx);
+        }
+        return 0;
+    }
+
+    fn base64Decode(allocator: Allocator, str: []const u8, alphabet: []const u8) RenderError![]u8 {
+        var padding: usize = 0;
+        if (str.len > 0 and str[str.len - 1] == '=') padding += 1;
+        if (str.len > 1 and str[str.len - 2] == '=') padding += 1;
+
+        const decoded_len = (str.len / 4) * 3 - padding;
+        var result = allocator.alloc(u8, decoded_len) catch return RenderError.OutOfMemory;
+
+        var i: usize = 0;
+        var j: usize = 0;
+        while (i < str.len) {
+            const c0 = base64IndexOf(str[i], alphabet);
+            const c1 = if (i + 1 < str.len) base64IndexOf(str[i + 1], alphabet) else 0;
+            const c2 = if (i + 2 < str.len and str[i + 2] != '=') base64IndexOf(str[i + 2], alphabet) else 0;
+            const c3 = if (i + 3 < str.len and str[i + 3] != '=') base64IndexOf(str[i + 3], alphabet) else 0;
+
+            const triple = (c0 << 18) | (c1 << 12) | (c2 << 6) | c3;
+
+            if (j < decoded_len) result[j] = @intCast((triple >> 16) & 0xFF);
+            if (j + 1 < decoded_len) result[j + 1] = @intCast((triple >> 8) & 0xFF);
+            if (j + 2 < decoded_len) result[j + 2] = @intCast(triple & 0xFF);
+
+            i += 4;
+            j += 3;
+        }
+        return result;
+    }
+
+    fn filterBase64Encode(self: *Self, value: Value) RenderError!Value {
+        const str = value.toString(self.workAllocator()) catch return RenderError.OutOfMemory;
+        if (str.len == 0) return Value.initString("");
+        return Value.initString(try base64Encode(self.workAllocator(), str, base64_standard));
     }
 
     fn filterBase64Decode(self: *Self, value: Value) RenderError!Value {
         const str = value.toString(self.workAllocator()) catch return RenderError.OutOfMemory;
         if (str.len == 0) return Value.initString("");
-
-        const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-        // Count padding
-        var padding: usize = 0;
-        if (str.len > 0 and str[str.len - 1] == '=') padding += 1;
-        if (str.len > 1 and str[str.len - 2] == '=') padding += 1;
-
-        const decoded_len = (str.len / 4) * 3 - padding;
-        var result = self.workAllocator().alloc(u8, decoded_len) catch return RenderError.OutOfMemory;
-
-        var i: usize = 0;
-        var j: usize = 0;
-        while (i < str.len) {
-            const indexOf = struct {
-                fn f(c: u8, alpha: []const u8) u32 {
-                    for (alpha, 0..) |a, idx| {
-                        if (a == c) return @intCast(idx);
-                    }
-                    return 0;
-                }
-            }.f;
-
-            const c0 = indexOf(str[i], alphabet);
-            const c1 = if (i + 1 < str.len) indexOf(str[i + 1], alphabet) else 0;
-            const c2 = if (i + 2 < str.len and str[i + 2] != '=') indexOf(str[i + 2], alphabet) else 0;
-            const c3 = if (i + 3 < str.len and str[i + 3] != '=') indexOf(str[i + 3], alphabet) else 0;
-
-            const triple = (c0 << 18) | (c1 << 12) | (c2 << 6) | c3;
-
-            if (j < decoded_len) result[j] = @intCast((triple >> 16) & 0xFF);
-            if (j + 1 < decoded_len) result[j + 1] = @intCast((triple >> 8) & 0xFF);
-            if (j + 2 < decoded_len) result[j + 2] = @intCast(triple & 0xFF);
-
-            i += 4;
-            j += 3;
-        }
-
-        return Value.initString(result);
+        return Value.initString(try base64Decode(self.workAllocator(), str, base64_standard));
     }
 
     fn filterBase64UrlSafeEncode(self: *Self, value: Value) RenderError!Value {
         const str = value.toString(self.workAllocator()) catch return RenderError.OutOfMemory;
         if (str.len == 0) return Value.initString("");
-
-        const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-        const encoded_len = ((str.len + 2) / 3) * 4;
-        var result = self.workAllocator().alloc(u8, encoded_len) catch return RenderError.OutOfMemory;
-
-        var i: usize = 0;
-        var j: usize = 0;
-        while (i < str.len) {
-            const b0: u32 = str[i];
-            const b1: u32 = if (i + 1 < str.len) str[i + 1] else 0;
-            const b2: u32 = if (i + 2 < str.len) str[i + 2] else 0;
-
-            const triple = (b0 << 16) | (b1 << 8) | b2;
-
-            result[j] = alphabet[(triple >> 18) & 0x3F];
-            result[j + 1] = alphabet[(triple >> 12) & 0x3F];
-            result[j + 2] = if (i + 1 < str.len) alphabet[(triple >> 6) & 0x3F] else '=';
-            result[j + 3] = if (i + 2 < str.len) alphabet[triple & 0x3F] else '=';
-
-            i += 3;
-            j += 4;
-        }
-
-        return Value.initString(result);
+        return Value.initString(try base64Encode(self.workAllocator(), str, base64_url_safe));
     }
 
     fn filterBase64UrlSafeDecode(self: *Self, value: Value) RenderError!Value {
         const str = value.toString(self.workAllocator()) catch return RenderError.OutOfMemory;
         if (str.len == 0) return Value.initString("");
-
-        const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-
-        // Count padding
-        var padding: usize = 0;
-        if (str.len > 0 and str[str.len - 1] == '=') padding += 1;
-        if (str.len > 1 and str[str.len - 2] == '=') padding += 1;
-
-        const decoded_len = (str.len / 4) * 3 - padding;
-        var result = self.workAllocator().alloc(u8, decoded_len) catch return RenderError.OutOfMemory;
-
-        var i: usize = 0;
-        var j: usize = 0;
-        while (i < str.len) {
-            const indexOf = struct {
-                fn f(c: u8, alpha: []const u8) u32 {
-                    for (alpha, 0..) |a, idx| {
-                        if (a == c) return @intCast(idx);
-                    }
-                    return 0;
-                }
-            }.f;
-
-            const c0 = indexOf(str[i], alphabet);
-            const c1 = if (i + 1 < str.len) indexOf(str[i + 1], alphabet) else 0;
-            const c2 = if (i + 2 < str.len and str[i + 2] != '=') indexOf(str[i + 2], alphabet) else 0;
-            const c3 = if (i + 3 < str.len and str[i + 3] != '=') indexOf(str[i + 3], alphabet) else 0;
-
-            const triple = (c0 << 18) | (c1 << 12) | (c2 << 6) | c3;
-
-            if (j < decoded_len) result[j] = @intCast((triple >> 16) & 0xFF);
-            if (j + 1 < decoded_len) result[j + 1] = @intCast((triple >> 8) & 0xFF);
-            if (j + 2 < decoded_len) result[j + 2] = @intCast(triple & 0xFF);
-
-            i += 4;
-            j += 3;
-        }
-
-        return Value.initString(result);
+        return Value.initString(try base64Decode(self.workAllocator(), str, base64_url_safe));
     }
 
     // Hash and encoding filter implementations
@@ -2680,248 +2531,186 @@ pub const Renderer = struct {
         }
     }
 
+    const ForLoopParams = struct {
+        limit: ?usize = null,
+        offset: usize = 0,
+        offset_continue: bool = false,
+        reversed: bool = false,
+    };
+
+    fn parseForLoopParams(self: *Self, node: Node) RenderError!ForLoopParams {
+        var params = ForLoopParams{};
+
+        for (node.children.items[1..]) |child| {
+            if (child.type != .expression) continue;
+            const param_name = child.value orelse continue;
+
+            if (std.mem.eql(u8, param_name, "limit")) {
+                if (child.children.items.len > 0) {
+                    const l = try self.evaluateNode(child.children.items[0]);
+                    params.limit = @intCast(switch (l) {
+                        .integer => |i| if (i > 0) i else 0,
+                        .string => |s| std.fmt.parseInt(i64, s, 10) catch 0,
+                        else => 0,
+                    });
+                }
+            } else if (std.mem.eql(u8, param_name, "offset")) {
+                if (child.children.items.len > 0) {
+                    const o = try self.evaluateNode(child.children.items[0]);
+                    switch (o) {
+                        .integer => |i| params.offset = @intCast(if (i > 0) i else 0),
+                        .string => |s| {
+                            if (std.mem.eql(u8, s, "continue")) {
+                                params.offset_continue = true;
+                            } else {
+                                const parsed = std.fmt.parseInt(i64, s, 10) catch 0;
+                                params.offset = @intCast(if (parsed > 0) parsed else 0);
+                            }
+                        },
+                        else => {
+                            if (child.children.items[0].type == .literal_string and
+                                child.children.items[0].value != null and
+                                std.mem.eql(u8, child.children.items[0].value.?, "continue"))
+                            {
+                                params.offset_continue = true;
+                            }
+                        },
+                    }
+                } else if (child.value != null and std.mem.eql(u8, child.value.?, "continue")) {
+                    params.offset_continue = true;
+                }
+            } else if (std.mem.eql(u8, param_name, "reversed")) {
+                params.reversed = true;
+            }
+        }
+
+        return params;
+    }
+
+    fn applySliceLimits(items: []const Value, offset: usize, limit: ?usize) []const Value {
+        var result = items;
+        if (offset > 0 and offset < result.len) {
+            result = result[offset..];
+        } else if (offset >= result.len) {
+            return &[_]Value{};
+        }
+        if (limit) |l| {
+            if (l < result.len) result = result[0..l];
+        }
+        return result;
+    }
+
+    fn renderElseBranch(self: *Self, node: Node) RenderError!bool {
+        for (node.children.items) |child| {
+            if (child.type == .else_branch) {
+                for (child.children.items) |sub_child| {
+                    try self.renderNode(sub_child);
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn renderForLoopBody(
+        self: *Self,
+        node: Node,
+        items: []const Value,
+        loop_var: []const u8,
+        reversed: bool,
+        offset: usize,
+        continue_value_ptr: ?*usize,
+    ) RenderError!void {
+        const effective_len = items.len;
+
+        for (0..items.len) |i| {
+            const idx = if (reversed) items.len - 1 - i else i;
+            const item = items[idx];
+
+            self.local_vars.put(loop_var, item) catch return RenderError.OutOfMemory;
+
+            const info = ForloopInfo{
+                .index = i + 1,
+                .index0 = i,
+                .length = items.len,
+                .first = i == 0,
+                .last = i == items.len - 1,
+                .rindex = items.len - i,
+                .rindex0 = items.len - i - 1,
+            };
+            self.forloop_stack.append(self.allocator, info) catch return RenderError.OutOfMemory;
+
+            for (node.children.items) |child| {
+                if (child.type == .expression or child.type == .else_branch) continue;
+                if (child.type == node.children.items[0].type and std.meta.eql(child, node.children.items[0])) continue;
+
+                self.renderNode(child) catch |err| {
+                    _ = self.forloop_stack.pop();
+                    if (err == RenderError.BreakLoop) {
+                        if (continue_value_ptr) |ptr| ptr.* = offset + effective_len;
+                        return;
+                    }
+                    if (err == RenderError.ContinueLoop) break;
+                    return err;
+                };
+            }
+
+            _ = self.forloop_stack.pop();
+        }
+
+        if (continue_value_ptr) |ptr| ptr.* = offset + effective_len;
+    }
+
+    fn objectToKeyValuePairs(self: *Self, obj: Value.ObjectMap) RenderError![]Value {
+        var pairs: std.ArrayList(Value) = .empty;
+        var iter = obj.map.iterator();
+        while (iter.next()) |entry| {
+            var pair = self.workAllocator().alloc(Value, 2) catch return RenderError.OutOfMemory;
+            pair[0] = Value.initString(entry.key_ptr.*);
+            pair[1] = entry.value_ptr.*;
+            pairs.append(self.workAllocator(), Value.initArray(pair)) catch return RenderError.OutOfMemory;
+        }
+        return pairs.toOwnedSlice(self.workAllocator()) catch return RenderError.OutOfMemory;
+    }
+
     fn renderForTag(self: *Self, node: Node) RenderError!void {
         if (node.children.items.len == 0) return;
 
         const loop_var = node.value orelse return;
-
-        // First child is iterable
         const iterable = try self.evaluateNode(node.children.items[0]);
 
-        // Parse optional parameters
-        var limit: ?usize = null;
-        var offset: usize = 0;
-        var offset_continue = false;
-        var reversed = false;
+        var params = try self.parseForLoopParams(node);
 
-        for (node.children.items[1..]) |child| {
-            if (child.type == .expression) {
-                if (child.value) |param_name| {
-                    if (std.mem.eql(u8, param_name, "limit")) {
-                        if (child.children.items.len > 0) {
-                            const l = try self.evaluateNode(child.children.items[0]);
-                            limit = @intCast(switch (l) {
-                                .integer => |i| if (i > 0) i else 0,
-                                .string => |s| std.fmt.parseInt(i64, s, 10) catch 0,
-                                else => 0,
-                            });
-                        }
-                    } else if (std.mem.eql(u8, param_name, "offset")) {
-                        if (child.children.items.len > 0) {
-                            const o = try self.evaluateNode(child.children.items[0]);
-                            switch (o) {
-                                .integer => |i| offset = @intCast(if (i > 0) i else 0),
-                                .string => |s| {
-                                    if (std.mem.eql(u8, s, "continue")) {
-                                        offset_continue = true;
-                                        offset = 0;
-                                    } else {
-                                        const parsed = std.fmt.parseInt(i64, s, 10) catch 0;
-                                        offset = @intCast(if (parsed > 0) parsed else 0);
-                                    }
-                                },
-                                else => {
-                                    if (child.children.items[0].type == .literal_string and
-                                        child.children.items[0].value != null and
-                                        std.mem.eql(u8, child.children.items[0].value.?, "continue"))
-                                    {
-                                        offset_continue = true;
-                                    } else {
-                                        offset = 0;
-                                    }
-                                },
-                            }
-                        } else if (child.value != null and std.mem.eql(u8, child.value.?, "continue")) {
-                            offset_continue = true;
-                        }
-                    } else if (std.mem.eql(u8, param_name, "reversed")) {
-                        reversed = true;
-                    }
-                }
-            }
+        // Set up continue offset tracking
+        const key_buf = try self.buildContinueKey(node.children.items[0]);
+        const gop = try self.continue_offsets.getOrPut(key_buf);
+        if (gop.found_existing) {
+            self.allocator.free(key_buf);
+        } else {
+            gop.key_ptr.* = key_buf;
+            gop.value_ptr.* = 0;
+        }
+        const continue_value_ptr = gop.value_ptr;
+
+        if (params.offset_continue) {
+            params.offset = continue_value_ptr.*;
         }
 
-        var continue_value_ptr: ?*usize = null;
-        if (true) {
-            const key_buf = try self.buildContinueKey(node.children.items[0]);
-            const gop = try self.continue_offsets.getOrPut(key_buf);
-            if (gop.found_existing) {
-                self.allocator.free(key_buf);
-            } else {
-                gop.key_ptr.* = key_buf;
-                gop.value_ptr.* = 0;
-            }
-            continue_value_ptr = gop.value_ptr;
+        // Convert iterable to array
+        const raw_items: []const Value = switch (iterable) {
+            .array => |arr| arr,
+            .object => |obj| try self.objectToKeyValuePairs(obj),
+            else => return,
+        };
+
+        const items = applySliceLimits(raw_items, params.offset, params.limit);
+
+        if (items.len == 0) {
+            _ = try self.renderElseBranch(node);
+            return;
         }
 
-        if (offset_continue) {
-            if (continue_value_ptr) |ptr| {
-                offset = ptr.*;
-            }
-        }
-
-        switch (iterable) {
-            .array => |arr| {
-                var items = arr;
-                if (offset > 0 and offset < items.len) {
-                    items = items[offset..];
-                } else if (offset >= items.len) {
-                    items = &[_]Value{};
-                }
-
-                if (limit) |l| {
-                    if (l < items.len) {
-                        items = items[0..l];
-                    }
-                }
-
-                if (items.len == 0) {
-                    // Render else branch if present
-                    for (node.children.items) |child| {
-                        if (child.type == .else_branch) {
-                            for (child.children.items) |sub_child| {
-                                try self.renderNode(sub_child);
-                            }
-                            return;
-                        }
-                    }
-                    return;
-                }
-
-                const effective_len = items.len;
-                var i: usize = 0;
-                while (i < items.len) : (i += 1) {
-                    const idx = if (reversed) items.len - 1 - i else i;
-                    const item = items[idx];
-
-                    // Set loop variable
-                    self.local_vars.put(loop_var, item) catch return RenderError.OutOfMemory;
-
-                    // Set forloop info
-                    const info = ForloopInfo{
-                        .index = i + 1,
-                        .index0 = i,
-                        .length = items.len,
-                        .first = i == 0,
-                        .last = i == items.len - 1,
-                        .rindex = items.len - i,
-                        .rindex0 = items.len - i - 1,
-                    };
-                    self.forloop_stack.append(self.allocator, info) catch return RenderError.OutOfMemory;
-
-                    // Render body (skip iterable, params, and else)
-                    for (node.children.items) |child| {
-                        if (child.type == .expression or child.type == .else_branch) continue;
-                        if (child.type == node.children.items[0].type and
-                            std.meta.eql(child, node.children.items[0])) continue;
-
-                        self.renderNode(child) catch |err| {
-                            _ = self.forloop_stack.pop();
-                            if (err == RenderError.BreakLoop) {
-                                if (continue_value_ptr) |ptr| {
-                                    ptr.* = offset + effective_len;
-                                }
-                                return;
-                            }
-                            if (err == RenderError.ContinueLoop) break;
-                            return err;
-                        };
-                    }
-
-                    _ = self.forloop_stack.pop();
-                }
-
-                if (continue_value_ptr) |ptr| {
-                    ptr.* = offset + effective_len;
-                }
-            },
-            .object => |obj| {
-                // Convert object to array of [key, value] pairs for iteration
-                var pairs: std.ArrayList(Value) = .empty;
-                var iter = obj.map.iterator();
-                while (iter.next()) |entry| {
-                    var pair: std.ArrayList(Value) = .empty;
-                    pair.append(self.workAllocator(), Value.initString(entry.key_ptr.*)) catch return RenderError.OutOfMemory;
-                    pair.append(self.workAllocator(), entry.value_ptr.*) catch return RenderError.OutOfMemory;
-                    pairs.append(self.workAllocator(), Value.initArray(pair.toOwnedSlice(self.workAllocator()) catch return RenderError.OutOfMemory)) catch return RenderError.OutOfMemory;
-                }
-
-                var items = pairs.toOwnedSlice(self.workAllocator()) catch return RenderError.OutOfMemory;
-
-                if (offset > 0 and offset < items.len) {
-                    items = items[offset..];
-                } else if (offset >= items.len) {
-                    items = &[_]Value{};
-                }
-
-                if (limit) |l| {
-                    if (l < items.len) {
-                        items = items[0..l];
-                    }
-                }
-
-                if (items.len == 0) {
-                    // Render else branch if present
-                    for (node.children.items) |child| {
-                        if (child.type == .else_branch) {
-                            for (child.children.items) |sub_child| {
-                                try self.renderNode(sub_child);
-                            }
-                            return;
-                        }
-                    }
-                    return;
-                }
-
-                const effective_len = items.len;
-                var i: usize = 0;
-                while (i < items.len) : (i += 1) {
-                    const idx = if (reversed) items.len - 1 - i else i;
-                    const item = items[idx];
-
-                    // Set loop variable
-                    self.local_vars.put(loop_var, item) catch return RenderError.OutOfMemory;
-
-                    // Set forloop info
-                    const info = ForloopInfo{
-                        .index = i + 1,
-                        .index0 = i,
-                        .length = items.len,
-                        .first = i == 0,
-                        .last = i == items.len - 1,
-                        .rindex = items.len - i,
-                        .rindex0 = items.len - i - 1,
-                    };
-                    self.forloop_stack.append(self.allocator, info) catch return RenderError.OutOfMemory;
-
-                    // Render body (skip iterable, params, and else)
-                    for (node.children.items) |child| {
-                        if (child.type == .expression or child.type == .else_branch) continue;
-                        if (child.type == node.children.items[0].type and
-                            std.meta.eql(child, node.children.items[0])) continue;
-
-                        self.renderNode(child) catch |err| {
-                            _ = self.forloop_stack.pop();
-                            if (err == RenderError.BreakLoop) {
-                                if (continue_value_ptr) |ptr| {
-                                    ptr.* = offset + effective_len;
-                                }
-                                return;
-                            }
-                            if (err == RenderError.ContinueLoop) break;
-                            return err;
-                        };
-                    }
-
-                    _ = self.forloop_stack.pop();
-                }
-
-                if (continue_value_ptr) |ptr| {
-                    ptr.* = offset + effective_len;
-                }
-            },
-            else => {},
-        }
+        try self.renderForLoopBody(node, items, loop_var, params.reversed, params.offset, continue_value_ptr);
     }
 
     fn renderAssignTag(self: *Self, node: Node) RenderError!void {
@@ -3017,26 +2806,24 @@ pub const Renderer = struct {
         self.cycle_indices.put(group, idx + 1) catch return RenderError.OutOfMemory;
     }
 
-    fn renderIncrementTag(self: *Self, node: Node) RenderError!void {
+    fn renderCounterTag(self: *Self, node: Node, comptime is_increment: bool) RenderError!void {
         const var_name = node.value orelse return;
-
         const current = self.counters.get(var_name) orelse 0;
-        const str = std.fmt.allocPrint(self.workAllocator(), "{d}", .{current}) catch return RenderError.OutOfMemory;
+        const output_val = if (is_increment) current else current - 1;
+        const next_val = if (is_increment) current + 1 else current - 1;
+
+        const str = std.fmt.allocPrint(self.workAllocator(), "{d}", .{output_val}) catch return RenderError.OutOfMemory;
         self.output.appendSlice(self.allocator, str) catch return RenderError.OutOfMemory;
-        const next = current + 1;
-        self.counters.put(var_name, next) catch return RenderError.OutOfMemory;
-        self.local_vars.put(var_name, Value.initInt(next)) catch return RenderError.OutOfMemory;
+        self.counters.put(var_name, next_val) catch return RenderError.OutOfMemory;
+        self.local_vars.put(var_name, Value.initInt(next_val)) catch return RenderError.OutOfMemory;
+    }
+
+    fn renderIncrementTag(self: *Self, node: Node) RenderError!void {
+        return self.renderCounterTag(node, true);
     }
 
     fn renderDecrementTag(self: *Self, node: Node) RenderError!void {
-        const var_name = node.value orelse return;
-
-        const current = self.counters.get(var_name) orelse 0;
-        const new_val = current - 1;
-        const str = std.fmt.allocPrint(self.workAllocator(), "{d}", .{new_val}) catch return RenderError.OutOfMemory;
-        self.output.appendSlice(self.allocator, str) catch return RenderError.OutOfMemory;
-        self.counters.put(var_name, new_val) catch return RenderError.OutOfMemory;
-        self.local_vars.put(var_name, Value.initInt(new_val)) catch return RenderError.OutOfMemory;
+        return self.renderCounterTag(node, false);
     }
 
     fn renderTablerowTag(self: *Self, node: Node) RenderError!void {

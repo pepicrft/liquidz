@@ -214,8 +214,8 @@ pub const Parser = struct {
 
             var node = Node.init(self.allocator, .logical);
             node.operator = op.value;
-            node.addChild(left) catch return ParseError.OutOfMemory;
-            node.addChild(right) catch return ParseError.OutOfMemory;
+            try node.addChild(left);
+            try node.addChild(right);
             left = node;
         }
 
@@ -231,8 +231,8 @@ pub const Parser = struct {
 
             var node = Node.init(self.allocator, .logical);
             node.operator = op.value;
-            node.addChild(left) catch return ParseError.OutOfMemory;
-            node.addChild(right) catch return ParseError.OutOfMemory;
+            try node.addChild(left);
+            try node.addChild(right);
             left = node;
         }
 
@@ -242,21 +242,21 @@ pub const Parser = struct {
     fn parseComparison(self: *Self) ParseError!Node {
         const left = try self.parsePrimary();
 
-        if (self.check(.eq) or self.check(.ne) or self.check(.lt) or
-            self.check(.gt) or self.check(.le) or self.check(.ge) or
-            self.check(.kw_contains))
-        {
-            const op = self.advance();
-            const right = try self.parsePrimary();
+        const is_comparison = switch (self.peek().type) {
+            .eq, .ne, .lt, .gt, .le, .ge, .kw_contains => true,
+            else => false,
+        };
 
-            var node = Node.init(self.allocator, .comparison);
-            node.operator = op.value;
-            node.addChild(left) catch return ParseError.OutOfMemory;
-            node.addChild(right) catch return ParseError.OutOfMemory;
-            return node;
-        }
+        if (!is_comparison) return left;
 
-        return left;
+        const op = self.advance();
+        const right = try self.parsePrimary();
+
+        var node = Node.init(self.allocator, .comparison);
+        node.operator = op.value;
+        try node.addChild(left);
+        try node.addChild(right);
+        return node;
     }
 
     fn parsePrimary(self: *Self) ParseError!Node {
@@ -562,41 +562,51 @@ pub const Parser = struct {
         return node;
     }
 
-    fn parseUnlessBody(self: *Self, node: *Node) ParseError!void {
+    const BodyParser = *const fn (*Self, *Node) ParseError!void;
+
+    fn parseBodyUntil(
+        self: *Self,
+        node: *Node,
+        end_keyword: TokenType,
+        else_keyword: ?TokenType,
+        else_body_parser: ?BodyParser,
+    ) ParseError!void {
         while (!self.isAtEnd()) {
             const token = self.peek();
 
             if (token.type == .text) {
-                const text_node = try self.parseText();
-                node.addChild(text_node) catch return ParseError.OutOfMemory;
+                node.addChild(try self.parseText()) catch return ParseError.OutOfMemory;
             } else if (token.type == .output_start or token.type == .output_start_trim) {
-                const output_node = try self.parseOutput();
-                node.addChild(output_node) catch return ParseError.OutOfMemory;
+                node.addChild(try self.parseOutput()) catch return ParseError.OutOfMemory;
             } else if (token.type == .tag_start or token.type == .tag_start_trim) {
                 _ = self.advance();
-
                 const tag_token = self.peek();
 
-                if (tag_token.type == .kw_else) {
+                if (else_keyword != null and tag_token.type == else_keyword.?) {
                     _ = self.advance();
                     var else_node = Node.init(self.allocator, .else_branch);
                     try self.expectTagEnd(&else_node);
-                    try self.parseUnlessBody(&else_node);
+                    if (else_body_parser) |parser| {
+                        try parser(self, &else_node);
+                    }
                     node.addChild(else_node) catch return ParseError.OutOfMemory;
                     return;
-                } else if (tag_token.type == .kw_endunless) {
+                } else if (tag_token.type == end_keyword) {
                     _ = self.advance();
                     try self.expectTagEnd(node);
                     return;
                 } else {
                     self.pos -= 1;
-                    const nested = try self.parseTag();
-                    node.addChild(nested) catch return ParseError.OutOfMemory;
+                    node.addChild(try self.parseTag()) catch return ParseError.OutOfMemory;
                 }
             } else {
                 break;
             }
         }
+    }
+
+    fn parseUnlessBody(self: *Self, node: *Node) ParseError!void {
+        try self.parseBodyUntil(node, .kw_endunless, .kw_else, parseUnlessBody);
     }
 
     fn parseForTag(self: *Self) ParseError!Node {
@@ -653,40 +663,7 @@ pub const Parser = struct {
     }
 
     fn parseForBody(self: *Self, node: *Node) ParseError!void {
-        while (!self.isAtEnd()) {
-            const token = self.peek();
-
-            if (token.type == .text) {
-                const text_node = try self.parseText();
-                node.addChild(text_node) catch return ParseError.OutOfMemory;
-            } else if (token.type == .output_start or token.type == .output_start_trim) {
-                const output_node = try self.parseOutput();
-                node.addChild(output_node) catch return ParseError.OutOfMemory;
-            } else if (token.type == .tag_start or token.type == .tag_start_trim) {
-                _ = self.advance();
-
-                const tag_token = self.peek();
-
-                if (tag_token.type == .kw_else) {
-                    _ = self.advance();
-                    var else_node = Node.init(self.allocator, .else_branch);
-                    try self.expectTagEnd(&else_node);
-                    try self.parseForBody(&else_node);
-                    node.addChild(else_node) catch return ParseError.OutOfMemory;
-                    return;
-                } else if (tag_token.type == .kw_endfor) {
-                    _ = self.advance();
-                    try self.expectTagEnd(node);
-                    return;
-                } else {
-                    self.pos -= 1;
-                    const nested = try self.parseTag();
-                    node.addChild(nested) catch return ParseError.OutOfMemory;
-                }
-            } else {
-                break;
-            }
-        }
+        try self.parseBodyUntil(node, .kw_endfor, .kw_else, parseForBody);
     }
 
     fn parseAssignTag(self: *Self) ParseError!Node {
@@ -744,33 +721,7 @@ pub const Parser = struct {
     }
 
     fn parseCaptureBody(self: *Self, node: *Node) ParseError!void {
-        while (!self.isAtEnd()) {
-            const token = self.peek();
-
-            if (token.type == .text) {
-                const text_node = try self.parseText();
-                node.addChild(text_node) catch return ParseError.OutOfMemory;
-            } else if (token.type == .output_start or token.type == .output_start_trim) {
-                const output_node = try self.parseOutput();
-                node.addChild(output_node) catch return ParseError.OutOfMemory;
-            } else if (token.type == .tag_start or token.type == .tag_start_trim) {
-                _ = self.advance();
-
-                const tag_token = self.peek();
-
-                if (tag_token.type == .kw_endcapture) {
-                    _ = self.advance();
-                    try self.expectTagEnd(node);
-                    return;
-                } else {
-                    self.pos -= 1;
-                    const nested = try self.parseTag();
-                    node.addChild(nested) catch return ParseError.OutOfMemory;
-                }
-            } else {
-                break;
-            }
-        }
+        try self.parseBodyUntil(node, .kw_endcapture, null, null);
     }
 
     fn parseCaseTag(self: *Self) ParseError!Node {
@@ -977,93 +928,52 @@ pub const Parser = struct {
     }
 
     fn parseTablerowBody(self: *Self, node: *Node) ParseError!void {
-        while (!self.isAtEnd()) {
-            const token = self.peek();
-
-            if (token.type == .text) {
-                const text_node = try self.parseText();
-                node.addChild(text_node) catch return ParseError.OutOfMemory;
-            } else if (token.type == .output_start or token.type == .output_start_trim) {
-                const output_node = try self.parseOutput();
-                node.addChild(output_node) catch return ParseError.OutOfMemory;
-            } else if (token.type == .tag_start or token.type == .tag_start_trim) {
-                _ = self.advance();
-
-                const tag_token = self.peek();
-
-                if (tag_token.type == .kw_endtablerow) {
-                    _ = self.advance();
-                    try self.expectTagEnd(node);
-                    return;
-                } else {
-                    self.pos -= 1;
-                    const nested = try self.parseTag();
-                    node.addChild(nested) catch return ParseError.OutOfMemory;
-                }
-            } else {
-                break;
-            }
-        }
+        try self.parseBodyUntil(node, .kw_endtablerow, null, null);
     }
 
     fn parseIncludeTag(self: *Self) ParseError!Node {
-        _ = self.advance(); // consume 'include'
+        return self.parseIncludeOrRenderTag(.include_tag);
+    }
 
-        var node = Node.init(self.allocator, .include_tag);
+    fn parseRenderTag(self: *Self) ParseError!Node {
+        return self.parseIncludeOrRenderTag(.render_tag);
+    }
+
+    fn parseIncludeOrRenderTag(self: *Self, node_type: NodeType) ParseError!Node {
+        _ = self.advance(); // consume 'include' or 'render'
+
+        var node = Node.init(self.allocator, node_type);
 
         // Parse template name
         const template = try self.parsePrimary();
         node.addChild(template) catch return ParseError.OutOfMemory;
 
         // Parse optional 'with' or 'for'
-        if (self.check(.kw_with)) {
+        if (self.check(.kw_with) or self.check(.kw_for)) {
+            const is_for = self.check(.kw_for);
             _ = self.advance();
-            const with_val = try self.parsePrimary();
-            var with_node = Node.init(self.allocator, .expression);
-            with_node.value = "with";
-            with_node.addChild(with_val) catch return ParseError.OutOfMemory;
+
+            const val = try self.parsePrimary();
+            var binding_node = Node.init(self.allocator, .expression);
+            binding_node.value = if (is_for) "for" else "with";
+            binding_node.addChild(val) catch return ParseError.OutOfMemory;
 
             if (self.check(.kw_as)) {
                 _ = self.advance();
-                if (!self.check(.identifier)) {
-                    return ParseError.InvalidSyntax;
-                }
-                const as_name = self.advance();
-                with_node.filter_name = as_name.value;
+                if (!self.check(.identifier)) return ParseError.InvalidSyntax;
+                binding_node.filter_name = self.advance().value;
             }
 
-            node.addChild(with_node) catch return ParseError.OutOfMemory;
-        } else if (self.check(.kw_for)) {
-            _ = self.advance();
-            const for_val = try self.parsePrimary();
-            var for_node = Node.init(self.allocator, .expression);
-            for_node.value = "for";
-            for_node.addChild(for_val) catch return ParseError.OutOfMemory;
-
-            if (self.check(.kw_as)) {
-                _ = self.advance();
-                if (!self.check(.identifier)) {
-                    return ParseError.InvalidSyntax;
-                }
-                const as_name = self.advance();
-                for_node.filter_name = as_name.value;
-            }
-
-            node.addChild(for_node) catch return ParseError.OutOfMemory;
+            node.addChild(binding_node) catch return ParseError.OutOfMemory;
         }
 
         // Parse variable assignments
         while (self.check(.comma) or self.check(.identifier)) {
-            if (self.check(.comma)) {
-                _ = self.advance();
-            }
-
+            if (self.check(.comma)) _ = self.advance();
             if (!self.check(.identifier)) break;
 
             const var_name = self.advance();
-            if (!self.check(.colon)) {
-                return ParseError.InvalidSyntax;
-            }
+            if (!self.check(.colon)) return ParseError.InvalidSyntax;
             _ = self.advance();
 
             var assign_node = Node.initWithValue(self.allocator, .expression, var_name.value);
@@ -1073,78 +983,6 @@ pub const Parser = struct {
         }
 
         try self.expectTagEnd(&node);
-
-        return node;
-    }
-
-    fn parseRenderTag(self: *Self) ParseError!Node {
-        _ = self.advance(); // consume 'render'
-
-        var node = Node.init(self.allocator, .render_tag);
-
-        // Parse template name
-        const template = try self.parsePrimary();
-        node.addChild(template) catch return ParseError.OutOfMemory;
-
-        // Parse optional 'with', 'for', or variable assignments
-        if (self.check(.kw_with)) {
-            _ = self.advance();
-            const with_val = try self.parsePrimary();
-            var with_node = Node.init(self.allocator, .expression);
-            with_node.value = "with";
-            with_node.addChild(with_val) catch return ParseError.OutOfMemory;
-
-            if (self.check(.kw_as)) {
-                _ = self.advance();
-                if (!self.check(.identifier)) {
-                    return ParseError.InvalidSyntax;
-                }
-                const as_name = self.advance();
-                with_node.filter_name = as_name.value;
-            }
-
-            node.addChild(with_node) catch return ParseError.OutOfMemory;
-        } else if (self.check(.kw_for)) {
-            _ = self.advance();
-            const for_val = try self.parsePrimary();
-            var for_node = Node.init(self.allocator, .expression);
-            for_node.value = "for";
-            for_node.addChild(for_val) catch return ParseError.OutOfMemory;
-
-            if (self.check(.kw_as)) {
-                _ = self.advance();
-                if (!self.check(.identifier)) {
-                    return ParseError.InvalidSyntax;
-                }
-                const as_name = self.advance();
-                for_node.filter_name = as_name.value;
-            }
-
-            node.addChild(for_node) catch return ParseError.OutOfMemory;
-        }
-
-        // Parse variable assignments
-        while (self.check(.comma) or self.check(.identifier)) {
-            if (self.check(.comma)) {
-                _ = self.advance();
-            }
-
-            if (!self.check(.identifier)) break;
-
-            const var_name = self.advance();
-            if (!self.check(.colon)) {
-                return ParseError.InvalidSyntax;
-            }
-            _ = self.advance();
-
-            var assign_node = Node.initWithValue(self.allocator, .expression, var_name.value);
-            const assign_val = try self.parsePrimary();
-            assign_node.addChild(assign_val) catch return ParseError.OutOfMemory;
-            node.addChild(assign_node) catch return ParseError.OutOfMemory;
-        }
-
-        try self.expectTagEnd(&node);
-
         return node;
     }
 
@@ -1318,33 +1156,7 @@ pub const Parser = struct {
     }
 
     fn parseIfchangedBody(self: *Self, node: *Node) ParseError!void {
-        while (!self.isAtEnd()) {
-            const token = self.peek();
-
-            if (token.type == .text) {
-                const text_node = try self.parseText();
-                node.addChild(text_node) catch return ParseError.OutOfMemory;
-            } else if (token.type == .output_start or token.type == .output_start_trim) {
-                const output_node = try self.parseOutput();
-                node.addChild(output_node) catch return ParseError.OutOfMemory;
-            } else if (token.type == .tag_start or token.type == .tag_start_trim) {
-                _ = self.advance();
-
-                const tag_token = self.peek();
-
-                if (tag_token.type == .kw_endifchanged) {
-                    _ = self.advance();
-                    try self.expectTagEnd(node);
-                    return;
-                } else {
-                    self.pos -= 1;
-                    const nested = try self.parseTag();
-                    node.addChild(nested) catch return ParseError.OutOfMemory;
-                }
-            } else {
-                break;
-            }
-        }
+        try self.parseBodyUntil(node, .kw_endifchanged, null, null);
     }
 
     fn parseDocTag(self: *Self) ParseError!Node {
