@@ -18,6 +18,8 @@ pub const NodeType = enum {
     literal_float,
     literal_bool,
     literal_nil,
+    literal_empty,
+    literal_blank,
     range,
     filter,
     property_access,
@@ -39,6 +41,7 @@ pub const NodeType = enum {
     render_tag,
     raw_tag,
     comment_tag,
+    inline_comment_tag,
     liquid_tag,
     echo_tag,
     break_tag,
@@ -48,6 +51,8 @@ pub const NodeType = enum {
     expression,
     comparison,
     logical,
+    invalid_expression,
+    filtered_expression,
 };
 
 pub const Node = struct {
@@ -62,6 +67,9 @@ pub const Node = struct {
     operator: ?[]const u8 = null,
     trim_left: bool = false,
     trim_right: bool = false,
+    end_trim_left: bool = false, // For block tags: {%- endXXX %} trims before end tag
+    end_trim_right: bool = false, // For block tags: {% endXXX -%} trims after end tag
+    invalid_operator: ?[]const u8 = null, // Set when expression has an unknown operator
 
     const Self = @This();
 
@@ -177,15 +185,30 @@ pub const Parser = struct {
         var node = Node.init(self.allocator, .output);
         node.trim_left = trim_left;
 
-        // Parse the expression
-        const expr = try self.parseExpression();
-        node.addChild(expr) catch return ParseError.OutOfMemory;
+        // Check for empty expression {{}}
+        if (self.check(.output_end) or self.check(.output_end_trim)) {
+            // Empty expression - create an empty string node
+            var empty_node = Node.init(self.allocator, .literal_string);
+            empty_node.value = "";
+            node.addChild(empty_node) catch return ParseError.OutOfMemory;
+        } else {
+            // Parse the expression using parsePrimary for lax parsing
+            // This way "{{ false a }}" parses "false" and ignores "a"
+            const expr = try self.parsePrimary();
+            node.addChild(expr) catch return ParseError.OutOfMemory;
 
-        // Parse filters
-        while (self.check(.pipe)) {
-            _ = self.advance(); // consume pipe
-            const filter = try self.parseFilter();
-            node.addChild(filter) catch return ParseError.OutOfMemory;
+            // Parse filters
+            while (self.check(.pipe)) {
+                _ = self.advance(); // consume pipe
+                const filter = try self.parseFilter();
+                node.addChild(filter) catch return ParseError.OutOfMemory;
+            }
+
+            // Skip any trailing tokens until output end (Ruby Liquid lax parsing)
+            // This handles cases like: {{ false a }}, {{ - 'theme.css' - }}, etc.
+            while (!self.isAtEnd() and !self.check(.output_end) and !self.check(.output_end_trim)) {
+                _ = self.advance();
+            }
         }
 
         // Expect end of output
@@ -202,38 +225,22 @@ pub const Parser = struct {
     }
 
     fn parseExpression(self: *Self) ParseError!Node {
-        return self.parseLogicalOr();
+        return self.parseLogical();
     }
 
-    fn parseLogicalOr(self: *Self) ParseError!Node {
-        var left = try self.parseLogicalAnd();
+    // In Liquid, 'and' and 'or' have the same precedence and are right-associative
+    fn parseLogical(self: *Self) ParseError!Node {
+        const left = try self.parseComparison();
 
-        while (self.check(.kw_or)) {
+        if (self.check(.kw_and) or self.check(.kw_or)) {
             const op = self.advance();
-            const right = try self.parseLogicalAnd();
+            const right = try self.parseLogical(); // Recursive call for right-associativity
 
             var node = Node.init(self.allocator, .logical);
             node.operator = op.value;
             try node.addChild(left);
             try node.addChild(right);
-            left = node;
-        }
-
-        return left;
-    }
-
-    fn parseLogicalAnd(self: *Self) ParseError!Node {
-        var left = try self.parseComparison();
-
-        while (self.check(.kw_and)) {
-            const op = self.advance();
-            const right = try self.parseComparison();
-
-            var node = Node.init(self.allocator, .logical);
-            node.operator = op.value;
-            try node.addChild(left);
-            try node.addChild(right);
-            left = node;
+            return node;
         }
 
         return left;
@@ -287,17 +294,41 @@ pub const Parser = struct {
                 _ = self.advance();
                 return Node.init(self.allocator, .literal_nil);
             },
-            .blank, .empty => {
+            .blank => {
+                // Check if followed by [ or . - if so, treat as variable name
+                if (self.pos + 1 < self.tokens.len) {
+                    const next_type = self.tokens[self.pos + 1].type;
+                    if (next_type == .lbracket or next_type == .dot) {
+                        return self.parseVariable();
+                    }
+                }
                 _ = self.advance();
-                return Node.initWithValue(self.allocator, .literal_string, "");
+                return Node.init(self.allocator, .literal_blank);
+            },
+            .empty => {
+                // Check if followed by [ or . - if so, treat as variable name
+                if (self.pos + 1 < self.tokens.len) {
+                    const next_type = self.tokens[self.pos + 1].type;
+                    if (next_type == .lbracket or next_type == .dot) {
+                        return self.parseVariable();
+                    }
+                }
+                _ = self.advance();
+                return Node.init(self.allocator, .literal_empty);
             },
             .identifier => {
                 return self.parseVariable();
             },
+            // Keywords can be used as variable names in expression context
+            .kw_include, .kw_render, .kw_tablerow, .kw_cycle, .kw_increment, .kw_decrement, .kw_ifchanged, .kw_echo, .kw_liquid => {
+                return self.parseVariable();
+            },
             .lparen => {
-                // Could be a range or grouped expression
+                // Could be a range, grouped expression, or expression with filters
                 _ = self.advance(); // consume (
-                const start = try self.parsePrimary();
+
+                // First, try to parse as a primary to check for range
+                var start = try self.parsePrimary();
 
                 if (self.check(.range)) {
                     _ = self.advance(); // consume ..
@@ -312,6 +343,79 @@ pub const Parser = struct {
                     range_node.addChild(start) catch return ParseError.OutOfMemory;
                     range_node.addChild(end) catch return ParseError.OutOfMemory;
                     return range_node;
+                }
+
+                // Handle filters inside parentheses (e.g., ('X' | downcase))
+                if (self.check(.pipe)) {
+                    // Wrap the primary in a filtered_expression node
+                    var filtered = Node.init(self.allocator, .filtered_expression);
+                    filtered.addChild(start) catch return ParseError.OutOfMemory;
+
+                    while (self.check(.pipe)) {
+                        _ = self.advance();
+                        const filter = try self.parseFilter();
+                        filtered.addChild(filter) catch return ParseError.OutOfMemory;
+                    }
+                    start = filtered;
+                }
+
+                // Check for comparison or logical operators - this handles grouped expressions like (a == b and c == d)
+                const is_comparison = switch (self.peek().type) {
+                    .eq, .ne, .lt, .gt, .le, .ge, .kw_contains => true,
+                    else => false,
+                };
+
+                if (is_comparison) {
+                    const op = self.advance();
+                    const right = try self.parsePrimary();
+
+                    var comp_node = Node.init(self.allocator, .comparison);
+                    comp_node.operator = op.value;
+                    try comp_node.addChild(start);
+                    try comp_node.addChild(right);
+                    start = comp_node;
+
+                    // Now check for logical operators
+                    while (self.check(.kw_and) or self.check(.kw_or)) {
+                        const log_op = self.advance();
+                        // Parse the next comparison
+                        const next_left = try self.parsePrimary();
+
+                        var right_node: Node = undefined;
+                        const is_next_comp = switch (self.peek().type) {
+                            .eq, .ne, .lt, .gt, .le, .ge, .kw_contains => true,
+                            else => false,
+                        };
+
+                        if (is_next_comp) {
+                            const next_op = self.advance();
+                            const next_right = try self.parsePrimary();
+                            right_node = Node.init(self.allocator, .comparison);
+                            right_node.operator = next_op.value;
+                            try right_node.addChild(next_left);
+                            try right_node.addChild(next_right);
+                        } else {
+                            right_node = next_left;
+                        }
+
+                        var log_node = Node.init(self.allocator, .logical);
+                        log_node.operator = log_op.value;
+                        try log_node.addChild(start);
+                        try log_node.addChild(right_node);
+                        start = log_node;
+                    }
+                } else if (self.check(.kw_and) or self.check(.kw_or)) {
+                    // Logical without comparison first (e.g., (a and b))
+                    while (self.check(.kw_and) or self.check(.kw_or)) {
+                        const log_op = self.advance();
+                        const right = try self.parsePrimary();
+
+                        var log_node = Node.init(self.allocator, .logical);
+                        log_node.operator = log_op.value;
+                        try log_node.addChild(start);
+                        try log_node.addChild(right);
+                        start = log_node;
+                    }
                 }
 
                 if (!self.check(.rparen)) {
@@ -353,13 +457,39 @@ pub const Parser = struct {
             _ = self.advance(); // consume ]
         } else {
             const token = self.advance();
-            node = Node.initWithValue(self.allocator, .variable, token.value);
+            // Use token value for identifiers and keywords used as variable names
+            const var_name = if (token.value.len > 0) token.value else switch (token.type) {
+                .kw_include => "include",
+                .kw_render => "render",
+                .kw_tablerow => "tablerow",
+                .kw_cycle => "cycle",
+                .kw_increment => "increment",
+                .kw_decrement => "decrement",
+                .kw_ifchanged => "ifchanged",
+                .kw_echo => "echo",
+                .kw_liquid => "liquid",
+                else => "",
+            };
+            node = Node.initWithValue(self.allocator, .variable, var_name);
         }
 
         // Parse property/index accesses
         while (true) {
             if (self.check(.dot)) {
                 _ = self.advance(); // consume .
+                if (!self.check(.identifier)) {
+                    return ParseError.InvalidSyntax;
+                }
+                const prop_token = self.advance();
+
+                var prop_node = Node.init(self.allocator, .property_access);
+                prop_node.value = prop_token.value;
+                prop_node.addChild(node) catch return ParseError.OutOfMemory;
+                node = prop_node;
+            } else if (self.check(.assign) and self.pos + 1 < self.tokens.len and self.tokens[self.pos + 1].type == .gt) {
+                // Ruby Liquid lax mode: foo=>bar is treated as foo.bar (hash rocket as property access)
+                _ = self.advance(); // consume =
+                _ = self.advance(); // consume >
                 if (!self.check(.identifier)) {
                     return ParseError.InvalidSyntax;
                 }
@@ -407,6 +537,16 @@ pub const Parser = struct {
         node.filter_name = filter_name.value;
         node.filter_args = .empty;
 
+        // Ruby Liquid lax mode: skip unexpected characters between filter name and colon
+        // e.g., split$$$:' ' should parse as split:' '
+        while (!self.isAtEnd() and !self.check(.colon) and !self.check(.pipe) and
+            !self.check(.output_end) and !self.check(.output_end_trim) and
+            !self.check(.tag_end) and !self.check(.tag_end_trim) and
+            !self.check(.rparen))
+        {
+            _ = self.advance();
+        }
+
         // Parse filter arguments
         if (self.check(.colon)) {
             _ = self.advance(); // consume :
@@ -415,11 +555,30 @@ pub const Parser = struct {
             const arg = try self.parseFilterArg();
             node.filter_args.?.append(self.allocator, arg) catch return ParseError.OutOfMemory;
 
+            // Ruby Liquid lax mode: skip unexpected tokens after argument
+            // e.g., split:"t"" should parse as split:"t" and skip the extra "
+            while (!self.isAtEnd() and !self.check(.comma) and !self.check(.pipe) and
+                !self.check(.output_end) and !self.check(.output_end_trim) and
+                !self.check(.tag_end) and !self.check(.tag_end_trim) and
+                !self.check(.rparen))
+            {
+                _ = self.advance();
+            }
+
             // Parse additional arguments
             while (self.check(.comma)) {
                 _ = self.advance(); // consume ,
                 const next_arg = try self.parseFilterArg();
                 node.filter_args.?.append(self.allocator, next_arg) catch return ParseError.OutOfMemory;
+
+                // Skip unexpected tokens after argument
+                while (!self.isAtEnd() and !self.check(.comma) and !self.check(.pipe) and
+                    !self.check(.output_end) and !self.check(.output_end_trim) and
+                    !self.check(.tag_end) and !self.check(.tag_end_trim) and
+                    !self.check(.rparen))
+                {
+                    _ = self.advance();
+                }
             }
         }
 
@@ -486,10 +645,21 @@ pub const Parser = struct {
         var node = Node.init(self.allocator, .if_tag);
 
         // Parse condition
-        const condition = try self.parseExpression();
-        node.addChild(condition) catch return ParseError.OutOfMemory;
+        var condition = try self.parseExpression();
 
-        try self.expectTagEnd(&node);
+        // Check for leftover tokens (unknown operator situation)
+        // In lax mode, we skip to tag end and record the invalid operator
+        if (!self.check(.tag_end) and !self.check(.tag_end_trim)) {
+            // Record the unknown operator token's value
+            const bad_token = self.peek();
+            condition.invalid_operator = bad_token.value;
+            // Skip to tag end
+            try self.skipToTagEnd(&node);
+        } else {
+            try self.expectTagEnd(&node);
+        }
+
+        node.addChild(condition) catch return ParseError.OutOfMemory;
 
         // Parse body and branches
         try self.parseIfBody(&node);
@@ -509,29 +679,44 @@ pub const Parser = struct {
                 const output_node = try self.parseOutput();
                 node.addChild(output_node) catch return ParseError.OutOfMemory;
             } else if (token.type == .tag_start or token.type == .tag_start_trim) {
-                _ = self.advance(); // consume {%
+                const start_token = self.advance(); // consume {%
+                const tag_trim_left = start_token.type == .tag_start_trim;
 
                 const tag_token = self.peek();
 
                 if (tag_token.type == .kw_elsif) {
                     _ = self.advance(); // consume 'elsif'
                     var elsif_node = Node.init(self.allocator, .elsif_branch);
-                    const elsif_cond = try self.parseExpression();
+                    elsif_node.trim_left = tag_trim_left;
+                    var elsif_cond = try self.parseExpression();
+
+                    // Check for leftover tokens (unknown operator situation)
+                    if (!self.check(.tag_end) and !self.check(.tag_end_trim)) {
+                        const bad_token = self.peek();
+                        elsif_cond.invalid_operator = bad_token.value;
+                        try self.skipToTagEnd(&elsif_node);
+                    } else {
+                        try self.expectTagEnd(&elsif_node);
+                    }
+
                     elsif_node.addChild(elsif_cond) catch return ParseError.OutOfMemory;
-                    try self.expectTagEnd(&elsif_node);
                     try self.parseIfBody(&elsif_node);
                     node.addChild(elsif_node) catch return ParseError.OutOfMemory;
                     return;
                 } else if (tag_token.type == .kw_else) {
                     _ = self.advance(); // consume 'else'
                     var else_node = Node.init(self.allocator, .else_branch);
-                    try self.expectTagEnd(&else_node);
+                    else_node.trim_left = tag_trim_left;
+                    // Skip any tokens until tag end (else expressions are ignored in Liquid)
+                    try self.skipToTagEnd(&else_node);
                     try self.parseIfBody(&else_node);
                     node.addChild(else_node) catch return ParseError.OutOfMemory;
                     return;
                 } else if (tag_token.type == .kw_endif) {
                     _ = self.advance(); // consume 'endif'
-                    try self.expectTagEnd(node);
+                    // Apply end_trim_left from {%- endif - trim trailing ws in output during render
+                    node.end_trim_left = tag_trim_left;
+                    try self.expectEndTagEnd(node);
                     return;
                 } else {
                     // It's a nested tag
@@ -593,7 +778,7 @@ pub const Parser = struct {
                     return;
                 } else if (tag_token.type == end_keyword) {
                     _ = self.advance();
-                    try self.expectTagEnd(node);
+                    try self.expectEndTagEnd(node);
                     return;
                 } else {
                     self.pos -= 1;
@@ -606,7 +791,63 @@ pub const Parser = struct {
     }
 
     fn parseUnlessBody(self: *Self, node: *Node) ParseError!void {
-        try self.parseBodyUntil(node, .kw_endunless, .kw_else, parseUnlessBody);
+        // Parse body nodes until elsif, else, or endunless
+        while (!self.isAtEnd()) {
+            const token = self.peek();
+
+            if (token.type == .text) {
+                const text_node = try self.parseText();
+                node.addChild(text_node) catch return ParseError.OutOfMemory;
+            } else if (token.type == .output_start or token.type == .output_start_trim) {
+                const output_node = try self.parseOutput();
+                node.addChild(output_node) catch return ParseError.OutOfMemory;
+            } else if (token.type == .tag_start or token.type == .tag_start_trim) {
+                const start_token = self.advance(); // consume {%
+                const tag_trim_left = start_token.type == .tag_start_trim;
+
+                const tag_token = self.peek();
+
+                if (tag_token.type == .kw_elsif) {
+                    _ = self.advance(); // consume 'elsif'
+                    var elsif_node = Node.init(self.allocator, .elsif_branch);
+                    var elsif_cond = try self.parseExpression();
+
+                    // Check for leftover tokens (unknown operator situation)
+                    if (!self.check(.tag_end) and !self.check(.tag_end_trim)) {
+                        const bad_token = self.peek();
+                        elsif_cond.invalid_operator = bad_token.value;
+                        try self.skipToTagEnd(&elsif_node);
+                    } else {
+                        try self.expectTagEnd(&elsif_node);
+                    }
+
+                    elsif_node.addChild(elsif_cond) catch return ParseError.OutOfMemory;
+                    try self.parseUnlessBody(&elsif_node);
+                    node.addChild(elsif_node) catch return ParseError.OutOfMemory;
+                    return;
+                } else if (tag_token.type == .kw_else) {
+                    _ = self.advance(); // consume 'else'
+                    var else_node = Node.init(self.allocator, .else_branch);
+                    // Skip any tokens until tag end (else expressions are ignored in Liquid)
+                    try self.skipToTagEnd(&else_node);
+                    try self.parseUnlessBody(&else_node);
+                    node.addChild(else_node) catch return ParseError.OutOfMemory;
+                    return;
+                } else if (tag_token.type == .kw_endunless) {
+                    _ = self.advance(); // consume 'endunless'
+                    node.end_trim_left = tag_trim_left;
+                    try self.expectEndTagEnd(node);
+                    return;
+                } else {
+                    // It's a nested tag
+                    self.pos -= 1; // back up to tag_start
+                    const nested = try self.parseTag();
+                    node.addChild(nested) catch return ParseError.OutOfMemory;
+                }
+            } else {
+                break;
+            }
+        }
     }
 
     fn parseForTag(self: *Self) ParseError!Node {
@@ -631,6 +872,11 @@ pub const Parser = struct {
         const iterable = try self.parseExpression();
         node.addChild(iterable) catch return ParseError.OutOfMemory;
 
+        // Skip optional comma after iterable
+        if (self.check(.comma)) {
+            _ = self.advance();
+        }
+
         // Parse optional parameters (limit, offset, reversed)
         while (self.check(.kw_limit) or self.check(.kw_offset) or self.check(.kw_reversed)) {
             const param = self.advance();
@@ -652,6 +898,11 @@ pub const Parser = struct {
             }
 
             node.addChild(param_node) catch return ParseError.OutOfMemory;
+
+            // Skip optional comma between parameters
+            if (self.check(.comma)) {
+                _ = self.advance();
+            }
         }
 
         try self.expectTagEnd(&node);
@@ -671,8 +922,8 @@ pub const Parser = struct {
 
         var node = Node.init(self.allocator, .assign_tag);
 
-        // Parse variable name
-        if (!self.check(.identifier)) {
+        // Parse variable name (can be identifier or integer in Ruby Liquid)
+        if (!self.check(.identifier) and !self.check(.integer)) {
             return ParseError.InvalidSyntax;
         }
         const var_name = self.advance();
@@ -684,8 +935,8 @@ pub const Parser = struct {
         }
         _ = self.advance();
 
-        // Parse value expression
-        const value = try self.parseExpression();
+        // Parse value expression using parsePrimary for lax parsing
+        const value = try self.parsePrimary();
         node.addChild(value) catch return ParseError.OutOfMemory;
 
         // Parse filters
@@ -693,6 +944,12 @@ pub const Parser = struct {
             _ = self.advance();
             const filter = try self.parseFilter();
             node.addChild(filter) catch return ParseError.OutOfMemory;
+        }
+
+        // Skip any trailing tokens until tag end (Ruby Liquid lax parsing)
+        // This handles cases like: assign foo = false a, etc.
+        while (!self.isAtEnd() and !self.check(.tag_end) and !self.check(.tag_end_trim)) {
+            _ = self.advance();
         }
 
         try self.expectTagEnd(&node);
@@ -705,12 +962,22 @@ pub const Parser = struct {
 
         var node = Node.init(self.allocator, .capture_tag);
 
-        // Parse variable name
-        if (!self.check(.identifier)) {
+        // Parse variable name (can be identifier, integer, or string in Ruby Liquid)
+        if (!self.check(.identifier) and !self.check(.integer) and !self.check(.string)) {
             return ParseError.InvalidSyntax;
         }
         const var_name = self.advance();
-        node.value = var_name.value;
+        // For string variable names, strip the quotes
+        if (var_name.type == .string) {
+            const val = var_name.value;
+            if (val.len >= 2 and (val[0] == '"' or val[0] == '\'')) {
+                node.value = val[1 .. val.len - 1];
+            } else {
+                node.value = val;
+            }
+        } else {
+            node.value = var_name.value;
+        }
 
         try self.expectTagEnd(&node);
 
@@ -729,9 +996,16 @@ pub const Parser = struct {
 
         var node = Node.init(self.allocator, .case_tag);
 
-        // Parse expression to match
-        const expr = try self.parseExpression();
+        // Parse expression to match - use parsePrimary for lax parsing
+        // This way "case 1 bar" parses "1" and ignores "bar"
+        const expr = try self.parsePrimary();
         node.addChild(expr) catch return ParseError.OutOfMemory;
+
+        // Skip any trailing tokens until tag end (Ruby Liquid lax parsing)
+        // This handles cases like: case 1 bar, case foo=>bar, etc.
+        while (!self.isAtEnd() and !self.check(.tag_end) and !self.check(.tag_end_trim)) {
+            _ = self.advance();
+        }
 
         try self.expectTagEnd(&node);
 
@@ -749,6 +1023,7 @@ pub const Parser = struct {
                 // Skip whitespace-only text between when branches
                 _ = self.advance();
             } else if (token.type == .tag_start or token.type == .tag_start_trim) {
+                const trim_left = token.type == .tag_start_trim;
                 _ = self.advance();
 
                 const tag_token = self.peek();
@@ -756,15 +1031,31 @@ pub const Parser = struct {
                 if (tag_token.type == .kw_when) {
                     _ = self.advance();
                     var when_node = Node.init(self.allocator, .when_branch);
+                    when_node.trim_left = trim_left;
 
-                    // Parse when values (can be comma-separated)
+                    // Parse when values (can be comma-separated or separated by 'or')
+                    // Note: 'and' in Ruby Liquid causes everything after it to be ignored
                     const when_val = try self.parsePrimary();
                     when_node.addChild(when_val) catch return ParseError.OutOfMemory;
 
                     while (self.check(.comma) or self.check(.kw_or)) {
                         _ = self.advance();
+                        // Handle trailing 'or' after comma (e.g., "4, or 6")
+                        if (self.check(.kw_or)) {
+                            _ = self.advance();
+                        }
+                        // Handle trailing comma before tag end
+                        if (self.check(.tag_end) or self.check(.tag_end_trim)) {
+                            break;
+                        }
                         const next_val = try self.parsePrimary();
                         when_node.addChild(next_val) catch return ParseError.OutOfMemory;
+                    }
+
+                    // If 'and' appears or any other token that's not tag_end, skip until tag end (Ruby Liquid lax parsing)
+                    // This handles cases like: when 1 bar, when foo=>bar, etc.
+                    while (!self.isAtEnd() and !self.check(.tag_end) and !self.check(.tag_end_trim)) {
+                        _ = self.advance();
                     }
 
                     try self.expectTagEnd(&when_node);
@@ -773,12 +1064,17 @@ pub const Parser = struct {
                 } else if (tag_token.type == .kw_else) {
                     _ = self.advance();
                     var else_node = Node.init(self.allocator, .else_branch);
+                    else_node.trim_left = trim_left;
                     try self.expectTagEnd(&else_node);
                     try self.parseWhenBody(&else_node);
                     node.addChild(else_node) catch return ParseError.OutOfMemory;
                 } else if (tag_token.type == .kw_endcase) {
                     _ = self.advance();
-                    try self.expectTagEnd(node);
+                    // Store end_trim_left for endcase
+                    if (trim_left) {
+                        node.end_trim_left = true;
+                    }
+                    try self.expectEndTagEnd(node);
                     return;
                 } else {
                     return ParseError.InvalidSyntax;
@@ -820,16 +1116,27 @@ pub const Parser = struct {
 
         var node = Node.init(self.allocator, .cycle_tag);
 
-        // Check for optional group name
+        // Check for optional group name (can be string or identifier followed by colon)
         if (self.check(.string)) {
             const group = self.advance();
             if (self.check(.colon)) {
                 node.value = group.value;
                 _ = self.advance(); // consume :
             } else {
-                // It's a cycle value, not a group
+                // It's a cycle value, not a group - add it and check for comma
                 const val_node = Node.initWithValue(self.allocator, .literal_string, group.value);
                 node.addChild(val_node) catch return ParseError.OutOfMemory;
+                // If there's a comma, consume it and continue parsing values
+                if (self.check(.comma)) {
+                    _ = self.advance();
+                }
+            }
+        } else if (self.check(.identifier)) {
+            // Look ahead to see if this is a group name (identifier followed by colon)
+            if (self.pos + 1 < self.tokens.len and self.tokens[self.pos + 1].type == .colon) {
+                const group = self.advance();
+                node.value = group.value;
+                _ = self.advance(); // consume :
             }
         }
 
@@ -988,51 +1295,102 @@ pub const Parser = struct {
 
     fn parseRawTag(self: *Self) ParseError!Node {
         _ = self.advance(); // consume 'raw'
+        // Check if {% raw -%} to capture trim_right for content
+        const opening_trim_right = self.check(.tag_end_trim);
         try self.expectTagEndSimple();
 
         var node = Node.init(self.allocator, .raw_tag);
+        node.trim_right = opening_trim_right; // Will trim leading ws from raw content
 
-        // Collect all text until {% endraw %}
-        const start = self.pos;
-        var end = start;
+        // The lexer now provides a raw_content token with the exact content
+        if (self.pos < self.tokens.len and self.tokens[self.pos].type == .raw_content) {
+            node.value = self.tokens[self.pos].value;
+            _ = self.advance(); // consume raw_content
+        } else {
+            node.value = "";
+        }
 
-        while (self.pos < self.tokens.len) {
-            const token = self.tokens[self.pos];
-            if (token.type == .tag_start or token.type == .tag_start_trim) {
-                if (self.pos + 1 < self.tokens.len and self.tokens[self.pos + 1].type == .kw_endraw) {
-                    end = self.pos;
-                    self.pos += 2; // skip tag_start and endraw
-                    try self.expectTagEndSimple();
-                    break;
+        // Now expect {% endraw %} or {%- endraw -%}
+        if (self.pos < self.tokens.len and
+            (self.tokens[self.pos].type == .tag_start or self.tokens[self.pos].type == .tag_start_trim))
+        {
+            const endraw_trim_left = self.tokens[self.pos].type == .tag_start_trim;
+            _ = self.advance(); // consume tag_start
+            if (self.pos < self.tokens.len and self.tokens[self.pos].type == .kw_endraw) {
+                _ = self.advance(); // consume endraw
+                // Check for -%} at the end
+                node.end_trim_left = endraw_trim_left; // {%- endraw trims before
+                if (self.check(.tag_end_trim)) {
+                    node.end_trim_right = true; // endraw -%} trims after
+                    _ = self.advance();
+                } else if (self.check(.tag_end)) {
+                    _ = self.advance();
                 }
             }
-            self.pos += 1;
         }
-
-        // Collect raw content
-        var content: std.ArrayList(u8) = .empty;
-        for (self.tokens[start..end]) |token| {
-            content.appendSlice(self.allocator, token.value) catch return ParseError.OutOfMemory;
-        }
-        node.value = content.toOwnedSlice(self.allocator) catch return ParseError.OutOfMemory;
 
         return node;
     }
 
     fn parseCommentTag(self: *Self) ParseError!Node {
         _ = self.advance(); // consume 'comment'
-        try self.expectTagEndSimple();
 
-        const node = Node.init(self.allocator, .comment_tag);
+        var node = Node.init(self.allocator, .comment_tag);
 
-        // Skip until {% endcomment %}
-        while (self.pos < self.tokens.len) {
+        // Skip any content after 'comment' until tag end (for inline comment syntax inside liquid tag)
+        while (!self.isAtEnd() and !self.check(.tag_end) and !self.check(.tag_end_trim)) {
+            _ = self.advance();
+        }
+        // Track {%- comment -%} opening tag's trim_right
+        if (self.check(.tag_end_trim)) {
+            node.trim_right = true;
+            _ = self.advance();
+        } else if (self.check(.tag_end)) {
+            _ = self.advance();
+        } else {
+            return ParseError.InvalidSyntax;
+        }
+
+        // Skip until matching {% endcomment %}, tracking nesting and raw blocks
+        var nesting_depth: usize = 1;
+        var in_raw: bool = false;
+        while (self.pos < self.tokens.len and nesting_depth > 0) {
             const token = self.tokens[self.pos];
             if (token.type == .tag_start or token.type == .tag_start_trim) {
-                if (self.pos + 1 < self.tokens.len and self.tokens[self.pos + 1].type == .kw_endcomment) {
-                    self.pos += 2;
-                    try self.expectTagEndSimple();
-                    break;
+                if (self.pos + 1 < self.tokens.len) {
+                    const next_token = self.tokens[self.pos + 1];
+                    if (next_token.type == .kw_raw) {
+                        in_raw = true;
+                    } else if (next_token.type == .kw_endraw) {
+                        in_raw = false;
+                    } else if (!in_raw) {
+                        if (next_token.type == .kw_comment) {
+                            nesting_depth += 1;
+                        } else if (next_token.type == .kw_endcomment) {
+                            nesting_depth -= 1;
+                            if (nesting_depth == 0) {
+                                // Track {%- endcomment for end_trim_left
+                                if (token.type == .tag_start_trim) {
+                                    node.end_trim_left = true;
+                                }
+                                self.pos += 2;
+                                // Skip any content after endcomment and find tag end
+                                while (!self.isAtEnd() and !self.check(.tag_end) and !self.check(.tag_end_trim)) {
+                                    _ = self.advance();
+                                }
+                                // Track endcomment -%} for end_trim_right
+                                if (self.check(.tag_end_trim)) {
+                                    node.end_trim_right = true;
+                                    _ = self.advance();
+                                } else if (self.check(.tag_end)) {
+                                    _ = self.advance();
+                                } else {
+                                    return ParseError.InvalidSyntax;
+                                }
+                                break;
+                            }
+                        }
+                    }
                 }
             }
             self.pos += 1;
@@ -1061,15 +1419,17 @@ pub const Parser = struct {
 
         var node = Node.init(self.allocator, .echo_tag);
 
-        // Parse expression
-        const expr = try self.parseExpression();
-        node.addChild(expr) catch return ParseError.OutOfMemory;
+        // Parse expression if present (echo with no args outputs nothing)
+        if (!self.check(.tag_end) and !self.check(.tag_end_trim)) {
+            const expr = try self.parseExpression();
+            node.addChild(expr) catch return ParseError.OutOfMemory;
 
-        // Parse filters
-        while (self.check(.pipe)) {
-            _ = self.advance();
-            const filter = try self.parseFilter();
-            node.addChild(filter) catch return ParseError.OutOfMemory;
+            // Parse filters
+            while (self.check(.pipe)) {
+                _ = self.advance();
+                const filter = try self.parseFilter();
+                node.addChild(filter) catch return ParseError.OutOfMemory;
+            }
         }
 
         try self.expectTagEnd(&node);
@@ -1079,7 +1439,7 @@ pub const Parser = struct {
 
     fn parseInlineCommentTag(self: *Self) ParseError!Node {
         _ = self.advance(); // consume inline comment token
-        var node = Node.init(self.allocator, .comment_tag);
+        var node = Node.init(self.allocator, .inline_comment_tag);
         try self.expectTagEnd(&node);
         return node;
     }
@@ -1161,17 +1521,42 @@ pub const Parser = struct {
 
     fn parseDocTag(self: *Self) ParseError!Node {
         _ = self.advance(); // consume 'doc'
-        try self.expectTagEndSimple();
 
-        const node = Node.init(self.allocator, .doc_tag);
+        var node = Node.init(self.allocator, .doc_tag);
 
-        // Skip until {% enddoc %}
+        // Track {% doc -%} opening tag's trim_right
+        if (self.check(.tag_end_trim)) {
+            node.trim_right = true;
+            _ = self.advance();
+        } else if (self.check(.tag_end)) {
+            _ = self.advance();
+        } else {
+            return ParseError.InvalidSyntax;
+        }
+
+        // Skip until {% enddoc %} or {%- enddoc -%}
         while (self.pos < self.tokens.len) {
             const token = self.tokens[self.pos];
             if (token.type == .tag_start or token.type == .tag_start_trim) {
                 if (self.pos + 1 < self.tokens.len and self.tokens[self.pos + 1].type == .kw_enddoc) {
+                    // Track {%- enddoc for end_trim_left
+                    if (token.type == .tag_start_trim) {
+                        node.end_trim_left = true;
+                    }
                     self.pos += 2;
-                    try self.expectTagEndSimple();
+                    // Skip any content after enddoc (e.g., {% enddoc xyz %})
+                    while (!self.isAtEnd() and !self.check(.tag_end) and !self.check(.tag_end_trim)) {
+                        _ = self.advance();
+                    }
+                    // Track enddoc -%} for end_trim_right
+                    if (self.check(.tag_end_trim)) {
+                        node.end_trim_right = true;
+                        _ = self.advance();
+                    } else if (self.check(.tag_end)) {
+                        _ = self.advance();
+                    } else {
+                        return ParseError.InvalidSyntax;
+                    }
                     break;
                 }
             }
@@ -1198,6 +1583,38 @@ pub const Parser = struct {
         } else {
             return ParseError.InvalidSyntax;
         }
+    }
+
+    /// Skip any tokens until we reach a tag_end or tag_end_trim, then consume it
+    fn skipToTagEndSimple(self: *Self) ParseError!void {
+        while (!self.isAtEnd() and !self.check(.tag_end) and !self.check(.tag_end_trim)) {
+            _ = self.advance();
+        }
+        if (self.check(.tag_end_trim) or self.check(.tag_end)) {
+            _ = self.advance();
+        } else {
+            return ParseError.InvalidSyntax;
+        }
+    }
+
+    /// Like expectTagEnd but sets end_trim_right (for closing tags like endif, endfor, etc.)
+    fn expectEndTagEnd(self: *Self, node: *Node) ParseError!void {
+        if (self.check(.tag_end_trim)) {
+            node.end_trim_right = true;
+            _ = self.advance();
+        } else if (self.check(.tag_end)) {
+            _ = self.advance();
+        } else {
+            return ParseError.InvalidSyntax;
+        }
+    }
+
+    fn skipToTagEnd(self: *Self, node: *Node) ParseError!void {
+        // Skip any tokens until we reach tag_end or tag_end_trim
+        while (!self.isAtEnd() and !self.check(.tag_end) and !self.check(.tag_end_trim)) {
+            _ = self.advance();
+        }
+        try self.expectTagEnd(node);
     }
 
     fn takeLiquidBuffers(self: *Self, other: *Self) ParseError!void {

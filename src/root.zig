@@ -2,6 +2,16 @@
 //!
 //! This library provides a complete implementation of the Liquid template language,
 //! including lexing, parsing, and rendering capabilities.
+//!
+//! Architecture:
+//! - lexer.zig: Tokenizes template strings into a stream of tokens
+//! - parser.zig: Converts tokens into an Abstract Syntax Tree (AST)
+//! - renderer.zig: Evaluates the AST against a context to produce output
+//! - value.zig: Type-safe value representation (nil, bool, int, float, string, array, object)
+//! - filters.zig: Built-in Liquid filter implementations
+//!
+//! Memory: All memory is managed through explicit Zig Allocator patterns.
+//! Performance: No regex, minimal allocations, lazy evaluation where possible.
 
 const std = @import("std");
 
@@ -11,6 +21,7 @@ pub const Parser = @import("parser.zig").Parser;
 pub const Node = @import("parser.zig").Node;
 pub const Renderer = @import("renderer.zig").Renderer;
 pub const Value = @import("value.zig").Value;
+pub const Filters = @import("filters.zig");
 
 /// Parse and render a Liquid template with the given context data.
 pub fn render(allocator: std.mem.Allocator, template: []const u8, context: Value) ![]const u8 {

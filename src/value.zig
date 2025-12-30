@@ -12,15 +12,31 @@ pub const Value = union(enum) {
     string: []const u8,
     array: []const Value,
     object: ObjectMap,
+    empty: void, // Liquid's special empty value for comparison
+    blank: void, // Liquid's special blank value for comparison
+    range: Range, // Liquid range (start..end)
+    liquid_error: []const u8, // Liquid error message to be rendered inline
+    boolean_drop: BooleanDrop, // Special drop with separate truthiness and display value
+
+    pub const Range = struct {
+        start: i64,
+        end: i64,
+    };
+
+    pub const BooleanDrop = struct {
+        truthy: bool,
+        display: []const u8,
+    };
 
     pub const ObjectMap = struct {
         allocator: Allocator,
-        map: std.StringHashMap(Value),
+        // Use ArrayHashMap to preserve insertion order
+        map: std.StringArrayHashMap(Value),
 
         pub fn init(allocator: Allocator) ObjectMap {
             return .{
                 .allocator = allocator,
-                .map = std.StringHashMap(Value).init(allocator),
+                .map = std.StringArrayHashMap(Value).init(allocator),
             };
         }
 
@@ -67,6 +83,22 @@ pub const Value = union(enum) {
         return .{ .object = ObjectMap.init(allocator) };
     }
 
+    pub fn initEmpty() Self {
+        return .{ .empty = {} };
+    }
+
+    pub fn initBlank() Self {
+        return .{ .blank = {} };
+    }
+
+    pub fn initRange(start: i64, end: i64) Self {
+        return .{ .range = .{ .start = start, .end = end } };
+    }
+
+    pub fn initLiquidError(msg: []const u8) Self {
+        return .{ .liquid_error = msg };
+    }
+
     /// Recursively free all memory owned by this value
     pub fn deinit(self: *Self, allocator: Allocator) void {
         switch (self.*) {
@@ -86,7 +118,8 @@ pub const Value = union(enum) {
                 }
                 obj.map.deinit();
             },
-            .nil, .boolean, .integer, .float => {},
+            .nil, .boolean, .integer, .float, .empty, .blank, .range, .liquid_error => {},
+            .boolean_drop => |bd| allocator.free(bd.display),
         }
     }
 
@@ -96,7 +129,12 @@ pub const Value = union(enum) {
             .nil => false,
             .boolean => |b| b,
             // In Liquid, everything except nil and false is truthy
-            .string, .array, .object, .integer, .float => true,
+            // empty and blank are truthy when used as values
+            .string, .array, .object, .integer, .float, .empty, .blank, .range => true,
+            // Errors are truthy (they output something)
+            .liquid_error => true,
+            // Boolean drops use their truthy field
+            .boolean_drop => |bd| bd.truthy,
         };
     }
 
@@ -112,16 +150,63 @@ pub const Value = union(enum) {
     /// Get a property from the value (for objects and arrays)
     pub fn get(self: Self, key: []const u8) ?Value {
         return switch (self) {
-            .object => |obj| obj.get(key),
-            .array => |arr| arrayGet(arr, std.fmt.parseInt(i64, key, 10) catch return null),
+            .object => |obj| {
+                // First try regular property lookup
+                if (obj.get(key)) |v| return v;
+
+                // Special property 'size' for objects (only if not shadowed)
+                if (std.mem.eql(u8, key, "size")) {
+                    return Self.initInt(@intCast(obj.count()));
+                }
+                // 'first' and 'last' on objects require allocator - not supported here
+                return null;
+            },
+            .array => |arr| {
+                // Special properties for arrays
+                if (std.mem.eql(u8, key, "first")) {
+                    return if (arr.len > 0) arr[0] else null;
+                } else if (std.mem.eql(u8, key, "last")) {
+                    return if (arr.len > 0) arr[arr.len - 1] else null;
+                } else if (std.mem.eql(u8, key, "size")) {
+                    return Self.initInt(@intCast(arr.len));
+                }
+                // Try numeric index
+                return arrayGet(arr, std.fmt.parseInt(i64, key, 10) catch return null);
+            },
+            .string => |s| {
+                // Special properties for strings
+                if (std.mem.eql(u8, key, "size")) {
+                    return Self.initInt(@intCast(s.len));
+                }
+                return null;
+            },
+            .range => |r| {
+                // Special properties for ranges
+                if (std.mem.eql(u8, key, "first")) {
+                    return Self.initInt(r.start);
+                } else if (std.mem.eql(u8, key, "last")) {
+                    return Self.initInt(r.end);
+                } else if (std.mem.eql(u8, key, "size")) {
+                    return Self.initInt(if (r.end >= r.start) r.end - r.start + 1 else 0);
+                }
+                return null;
+            },
             else => null,
         };
     }
 
-    /// Get array item by index
+    /// Get array item by index (also works for strings to get characters)
     pub fn getIndex(self: Self, idx: i64) ?Value {
         return switch (self) {
             .array => |arr| arrayGet(arr, idx),
+            .string => |s| {
+                if (idx < 0) {
+                    const uidx: usize = @intCast(-idx);
+                    return if (uidx > s.len) null else Self.initString(s[s.len - uidx ..][0..1]);
+                }
+                const uidx: usize = @intCast(idx);
+                return if (uidx >= s.len) null else Self.initString(s[uidx..][0..1]);
+            },
             else => null,
         };
     }
@@ -133,14 +218,48 @@ pub const Value = union(enum) {
             .boolean => |b| if (b) "true" else "false",
             .integer => |i| try std.fmt.allocPrint(allocator, "{d}", .{i}),
             .float => |f| blk: {
-                // Check if it's actually a whole number
-                if (@round(f) == f and @abs(f) < 1e15) {
-                    const int_val: i64 = @intFromFloat(f);
+                const abs_f = @abs(f);
+
+                // For very large numbers, use scientific notation
+                if (abs_f >= 1e15) {
+                    const formatted = try std.fmt.allocPrint(allocator, "{e:.1}", .{f});
+                    break :blk formatted;
+                }
+
+                // For very small non-zero numbers, check if they're "clean" powers of 10
+                // vs floating point precision errors
+                if (abs_f != 0 and abs_f < 1e-4) {
+                    // Check if this looks like a precision error (not a clean mantissa)
+                    // by seeing if it rounds to a clean value
+                    const log10_val = @log10(abs_f);
+                    const exponent = @floor(log10_val);
+                    const mantissa = abs_f / std.math.pow(f64, 10.0, exponent);
+                    // If mantissa is close to 1 (within 1%), it's a clean power of 10
+                    const is_clean = @abs(mantissa - @round(mantissa)) < 0.01;
+
+                    if (is_clean) {
+                        // Use scientific notation for clean small values
+                        const formatted = try std.fmt.allocPrint(allocator, "{e:.1}", .{f});
+                        break :blk formatted;
+                    } else {
+                        // Likely a floating point error, round to zero
+                        break :blk try std.fmt.allocPrint(allocator, "0.0", .{});
+                    }
+                }
+
+                // Round to 10 decimal places to avoid floating point precision issues
+                // This matches Ruby's behavior better for normal values
+                const rounded = @round(f * 1e10) / 1e10;
+                const abs_rounded = @abs(rounded);
+
+                // Check if it's actually a whole number after rounding
+                if (@round(rounded) == rounded and abs_rounded < 1e15) {
+                    const int_val: i64 = @intFromFloat(rounded);
                     break :blk try std.fmt.allocPrint(allocator, "{d}.0", .{int_val});
                 }
 
-                // Format with high precision (15 decimal places for float64)
-                const formatted = try std.fmt.allocPrint(allocator, "{d:.15}", .{f});
+                // Format with precision sufficient for 10 decimal places
+                const formatted = try std.fmt.allocPrint(allocator, "{d:.10}", .{rounded});
 
                 // Trim trailing zeros after decimal point
                 if (std.mem.indexOfScalar(u8, formatted, '.')) |dot_pos| {
@@ -167,7 +286,88 @@ pub const Value = union(enum) {
                 }
                 return result.toOwnedSlice(allocator);
             },
-            .object => "{}",
+            .object => |obj| {
+                // Check for custom to_s (hash with custom string representation)
+                if (obj.map.get("_liquidz_custom_to_s")) |custom_to_s| {
+                    if (custom_to_s == .string) {
+                        return try allocator.dupe(u8, custom_to_s.string);
+                    }
+                }
+                // Check for special _liquidz_symbol object (Ruby symbol)
+                if (obj.map.get("_liquidz_symbol")) |_| {
+                    if (obj.map.get("name")) |name_val| {
+                        if (name_val == .string) {
+                            return try std.fmt.allocPrint(allocator, ":{s}", .{name_val.string});
+                        }
+                    }
+                }
+                // Format as Ruby hash: {"key"=>value, ...}
+                var result: std.ArrayList(u8) = .empty;
+                try result.append(allocator, '{');
+                var first = true;
+                var iter = obj.map.iterator();
+                while (iter.next()) |entry| {
+                    const key = entry.key_ptr.*;
+                    // Skip internal marker keys
+                    if (std.mem.eql(u8, key, "_liquidz_has_symbol_keys")) continue;
+                    if (std.mem.eql(u8, key, "_liquidz_has_hash_keys")) continue;
+                    if (!first) try result.appendSlice(allocator, ", ");
+                    first = false;
+                    // Check if key is a symbol (starts with :)
+                    if (key.len > 0 and key[0] == ':') {
+                        // Render as symbol: :key (no quotes)
+                        try result.appendSlice(allocator, key);
+                    } else if (std.mem.startsWith(u8, key, "_liquidz_hash_key:")) {
+                        // Hash key - render without quotes, strip the prefix
+                        try result.appendSlice(allocator, key["_liquidz_hash_key:".len..]);
+                    } else {
+                        // Quote the key
+                        try result.append(allocator, '"');
+                        try result.appendSlice(allocator, key);
+                        try result.append(allocator, '"');
+                    }
+                    try result.appendSlice(allocator, "=>");
+                    // Format the value
+                    const val = entry.value_ptr.*;
+                    switch (val) {
+                        .string => |s| {
+                            try result.append(allocator, '"');
+                            try result.appendSlice(allocator, s);
+                            try result.append(allocator, '"');
+                        },
+                        .array => {
+                            try result.append(allocator, '[');
+                            var first_item = true;
+                            for (val.array) |item| {
+                                if (!first_item) try result.appendSlice(allocator, ", ");
+                                first_item = false;
+                                switch (item) {
+                                    .string => |s| {
+                                        try result.append(allocator, '"');
+                                        try result.appendSlice(allocator, s);
+                                        try result.append(allocator, '"');
+                                    },
+                                    else => {
+                                        const s = try item.toString(allocator);
+                                        try result.appendSlice(allocator, s);
+                                    },
+                                }
+                            }
+                            try result.append(allocator, ']');
+                        },
+                        else => {
+                            const s = try val.toString(allocator);
+                            try result.appendSlice(allocator, s);
+                        },
+                    }
+                }
+                try result.append(allocator, '}');
+                return result.toOwnedSlice(allocator);
+            },
+            .empty, .blank => "",
+            .range => |r| try std.fmt.allocPrint(allocator, "{d}..{d}", .{ r.start, r.end }),
+            .liquid_error => |msg| msg,
+            .boolean_drop => |bd| bd.display,
         };
     }
 
@@ -183,6 +383,25 @@ pub const Value = union(enum) {
 
     /// Compare two values for equality
     pub fn eql(self: Self, other: Self) bool {
+        // In Ruby Liquid, empty == empty and blank == blank are always false
+        if (self == .empty and other == .empty) return false;
+        if (self == .blank and other == .blank) return false;
+
+        // Handle special 'empty' comparison (comparing non-empty values against empty literal)
+        if (other == .empty) {
+            return self.isEmpty();
+        }
+        if (self == .empty) {
+            return other.isEmpty();
+        }
+        // Handle special 'blank' comparison (comparing non-blank values against blank literal)
+        if (other == .blank) {
+            return self.isBlank();
+        }
+        if (self == .blank) {
+            return other.isBlank();
+        }
+
         switch (self) {
             .nil => return other == .nil,
             .boolean => |b| return other == .boolean and b == other.boolean,
@@ -205,11 +424,71 @@ pub const Value = union(enum) {
                 return true;
             },
             .object => return false,
+            .empty, .blank => return false,
+            .range => |r| return other == .range and r.start == other.range.start and r.end == other.range.end,
+            .liquid_error => |msg| return other == .liquid_error and std.mem.eql(u8, msg, other.liquid_error),
+            .boolean_drop => |bd| return other == .boolean_drop and bd.truthy == other.boolean_drop.truthy and std.mem.eql(u8, bd.display, other.boolean_drop.display),
         }
     }
 
+    /// Check if value is empty (empty array, empty object, empty string, or nil)
+    pub fn isEmpty(self: Self) bool {
+        return switch (self) {
+            .array => |arr| arr.len == 0,
+            .object => |obj| obj.count() == 0,
+            .string => |s| s.len == 0,
+            .nil => true,
+            .empty => true,
+            else => false,
+        };
+    }
+
+    /// Check if value is blank (empty, nil, or whitespace-only string)
+    pub fn isBlank(self: Self) bool {
+        return switch (self) {
+            .array => |arr| arr.len == 0,
+            .object => |obj| obj.count() == 0,
+            .string => |s| blk: {
+                for (s) |c| {
+                    if (c != ' ' and c != '\t' and c != '\n' and c != '\r') {
+                        break :blk false;
+                    }
+                }
+                break :blk true;
+            },
+            .nil => true,
+            .blank => true,
+            .empty => true,
+            else => false,
+        };
+    }
+
+    /// Get the type name for error messages
+    pub fn typeName(self: Self) []const u8 {
+        return switch (self) {
+            .nil => "NilClass",
+            .boolean => "Boolean",
+            .integer => "Integer",
+            .float => "Float",
+            .string => "String",
+            .array => "Array",
+            .object => "Hash",
+            .range => "Range",
+            .empty => "Empty",
+            .blank => "Blank",
+            .liquid_error => "Error",
+            .boolean_drop => "BooleanDrop",
+        };
+    }
+
     /// Check if value contains another value (for arrays or substrings)
+    /// Note: In Liquid, contains with nil/false as needle always returns false
     pub fn contains(self: Self, needle: Value) bool {
+        // In Liquid, contains with nil or false as needle always returns false
+        if (needle == .nil or (needle == .boolean and !needle.boolean)) {
+            return false;
+        }
+
         switch (self) {
             .array => |arr| {
                 for (arr) |item| {
@@ -217,7 +496,19 @@ pub const Value = union(enum) {
                 }
                 return false;
             },
-            .string => |s| return needle == .string and std.mem.indexOf(u8, s, needle.string) != null,
+            .string => |s| {
+                // For string contains, convert needle to string and check
+                if (needle == .string) {
+                    return std.mem.indexOf(u8, s, needle.string) != null;
+                }
+                if (needle == .integer) {
+                    // Convert integer to string and check
+                    var buf: [32]u8 = undefined;
+                    const int_str = std.fmt.bufPrint(&buf, "{d}", .{needle.integer}) catch return false;
+                    return std.mem.indexOf(u8, s, int_str) != null;
+                }
+                return false;
+            },
             else => return false,
         }
     }
@@ -238,6 +529,38 @@ pub const Value = union(enum) {
                 break :blk Self.initArray(try result.toOwnedSlice(allocator));
             },
             .object => |obj| blk: {
+                // Check for special _liquidz_range encoding
+                if (obj.get("_liquidz_range")) |_| {
+                    const start_json = obj.get("start") orelse break :blk Self.initNil();
+                    const end_json = obj.get("end") orelse break :blk Self.initNil();
+                    const start: i64 = switch (start_json) {
+                        .integer => |i| i,
+                        .float => |f| @intFromFloat(f),
+                        else => 0,
+                    };
+                    const end: i64 = switch (end_json) {
+                        .integer => |i| i,
+                        .float => |f| @intFromFloat(f),
+                        else => 0,
+                    };
+                    break :blk Self.initRange(start, end);
+                }
+
+                // Check for special _liquidz_boolean_drop encoding
+                if (obj.get("_liquidz_boolean_drop")) |_| {
+                    const truthy_json = obj.get("truthy") orelse break :blk Self.initNil();
+                    const display_json = obj.get("display") orelse break :blk Self.initNil();
+                    const truthy: bool = switch (truthy_json) {
+                        .bool => |b| b,
+                        else => false,
+                    };
+                    const display: []const u8 = switch (display_json) {
+                        .string => |s| try allocator.dupe(u8, s),
+                        else => "",
+                    };
+                    break :blk Self{ .boolean_drop = .{ .truthy = truthy, .display = display } };
+                }
+
                 var result = Self.initObject(allocator);
                 var it = obj.iterator();
                 while (it.next()) |entry| {
