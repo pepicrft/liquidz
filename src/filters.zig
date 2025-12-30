@@ -206,10 +206,11 @@ fn filterSplit(allocator: Allocator, value: Value, sep: Value) FilterError!Value
 }
 
 fn filterStrip(allocator: Allocator, value: Value) FilterError!Value {
-    const str = switch (value) {
-        .string => |s| s,
-        else => return FilterError.TypeError,
-    };
+     _ = allocator;
+     const str = switch (value) {
+         .string => |s| s,
+         else => return FilterError.TypeError,
+     };
 
     const trimmed = std.mem.trim(u8, str, " \t\n\r");
     return Value.initString(trimmed);

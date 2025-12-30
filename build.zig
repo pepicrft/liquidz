@@ -1,8 +1,18 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+     const target = b.standardTargetOptions(.{
+         .whitelist = &.{
+             .{ .cpu_arch = .x86_64, .os_tag = .linux },
+             .{ .cpu_arch = .aarch64, .os_tag = .linux },
+             .{ .cpu_arch = .riscv64, .os_tag = .linux },
+             .{ .cpu_arch = .x86_64, .os_tag = .macos },
+             .{ .cpu_arch = .aarch64, .os_tag = .macos },
+             .{ .cpu_arch = .x86_64, .os_tag = .windows },
+             .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+         },
+     });
+     const optimize = b.standardOptimizeOption(.{});
 
     // Create the liquidz module
     const liquidz_mod = b.createModule(.{
@@ -11,44 +21,52 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Executable
-    const exe = b.addExecutable(.{
-        .name = "liquidz",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "liquidz", .module = liquidz_mod },
-            },
-        }),
-    });
-    b.installArtifact(exe);
+    // Executable (skip for WASM)
+    var exe: ?*std.Build.Step.Compile = null;
+    if (target.result.os.tag != .freestanding) {
+        const exe_val = b.addExecutable(.{
+            .name = "liquidz",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/main.zig"),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{
+                    .{ .name = "liquidz", .module = liquidz_mod },
+                },
+            }),
+        });
+        b.installArtifact(exe_val);
+        exe = exe_val;
+    }
 
-    // C ABI static library for Ruby/FFI integration
-    const ffi_lib = b.addLibrary(.{
-        .name = "liquidz_ffi",
-        .linkage = .static,
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/ffi.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "liquidz", .module = liquidz_mod },
-            },
-        }),
-    });
-    ffi_lib.linkLibC();
-    b.installArtifact(ffi_lib);
+    // C ABI static library for Ruby/FFI integration (skip for WASM)
+    if (target.result.os.tag != .freestanding) {
+        const ffi_lib = b.addLibrary(.{
+            .name = "liquidz_ffi",
+            .linkage = .static,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/ffi.zig"),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{
+                    .{ .name = "liquidz", .module = liquidz_mod },
+                },
+            }),
+        });
+        ffi_lib.linkLibC();
+        b.installArtifact(ffi_lib);
+    }
 
     // Run step
-    const run_cmd = b.addRunArtifact(exe);
-    run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
+    if (exe) |exe_val| {
+        const run_cmd = b.addRunArtifact(exe_val);
+        run_cmd.step.dependOn(b.getInstallStep());
+        if (b.args) |args| {
+            run_cmd.addArgs(args);
+        }
+        const run_step = b.step("run", "Run the app");
+        run_step.dependOn(&run_cmd.step);
     }
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
 
     // Unit tests for lib
     const lib_unit_tests = b.addTest(.{

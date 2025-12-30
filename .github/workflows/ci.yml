@@ -43,9 +43,37 @@ jobs:
           zig build test
 
   build:
-    name: Build
-    runs-on: ubuntu-latest
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
     needs: setup
+    strategy:
+      matrix:
+        include:
+          # Linux builds
+          - os: ubuntu-latest
+            target: x86_64-linux-gnu
+            zig_target: "-Dtarget=x86_64-linux-gnu"
+          - os: ubuntu-latest
+            target: aarch64-linux-gnu
+            zig_target: "-Dtarget=aarch64-linux-gnu"
+          - os: ubuntu-latest
+            target: riscv64-linux-gnu
+            zig_target: "-Dtarget=riscv64-linux-gnu"
+          # macOS builds
+          - os: macos-latest
+            target: x86_64-macos
+            zig_target: "-Dtarget=x86_64-macos"
+          - os: macos-latest
+            target: aarch64-macos
+            zig_target: "-Dtarget=aarch64-macos"
+          # Windows builds
+          - os: windows-latest
+            target: x86_64-windows-gnu
+            zig_target: "-Dtarget=x86_64-windows-gnu"
+          # WebAssembly
+          - os: ubuntu-latest
+            target: wasm32
+            zig_target: "-Dtarget=wasm32-freestanding"
     steps:
       - uses: actions/checkout@v4
 
@@ -53,14 +81,17 @@ jobs:
         run: |
           curl https://mise.jq.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
+        shell: bash
 
       - name: Setup Tools
         run: mise install
+        shell: bash
 
-      - name: Build Release
+      - name: Build Release (${{ matrix.target }})
         run: |
           cd ${{ github.workspace }}
-          zig build -Doptimize=ReleaseFast
+          zig build -Doptimize=ReleaseFast ${{ matrix.zig_target }}
+        shell: bash
 
   golden-tests:
     name: Golden Liquid Tests
