@@ -82,16 +82,3 @@ jobs:
         run: |
           cd ${{ github.workspace }}/test
           ruby run_liquid_spec_tests.rb
-
-  code-quality:
-    name: Code Quality
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: jdx/mise-action@v2
-
-      - name: Check Build
-        run: |
-          cd ${{ github.workspace }}
-          zig build
