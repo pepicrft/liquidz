@@ -581,43 +581,41 @@ pub const Renderer = struct {
     }
 
     fn resolveVariable(self: *Self, name: []const u8) Value {
-        // Fast path: check local variables first (most common for assigns)
-        if (self.local_vars.get(name)) |val| {
-            return val;
+        // Check forloop first (must take precedence for nested loops)
+        if (std.mem.eql(u8, name, "forloop")) {
+            if (self.forloop_stack.items.len > 0) {
+                return self.buildForloopObject(self.forloop_stack.items.len - 1);
+            }
         }
 
-        // Fast path: check context (most common for data access)
-        if (self.context.get(name)) |val| {
-            return val;
+        if (std.mem.eql(u8, name, "tablerowloop")) {
+            if (self.tablerow_stack.items.len > 0) {
+                const info = self.tablerow_stack.items[self.tablerow_stack.items.len - 1];
+                // Use scratch allocator - these temporary objects are auto-cleaned at render end
+                var obj = Value.initObject(self.workAllocator());
+                obj.object.put("col", Value.initInt(@intCast(info.col))) catch {};
+                obj.object.put("col0", Value.initInt(@intCast(info.col0))) catch {};
+                obj.object.put("col_first", Value.initBool(info.col_first)) catch {};
+                obj.object.put("col_last", Value.initBool(info.col_last)) catch {};
+                obj.object.put("row", Value.initInt(@intCast(info.row))) catch {};
+                obj.object.put("index", Value.initInt(@intCast(info.index))) catch {};
+                obj.object.put("index0", Value.initInt(@intCast(info.index0))) catch {};
+                obj.object.put("first", Value.initBool(info.first)) catch {};
+                obj.object.put("last", Value.initBool(info.last)) catch {};
+                obj.object.put("length", Value.initInt(@intCast(info.length))) catch {};
+                obj.object.put("rindex", Value.initInt(@intCast(info.rindex))) catch {};
+                obj.object.put("rindex0", Value.initInt(@intCast(info.rindex0))) catch {};
+                return obj;
+            }
         }
 
-        // Check forloop (only when inside a for loop)
-        if (self.forloop_stack.items.len > 0 and std.mem.eql(u8, name, "forloop")) {
-            return self.buildForloopObject(self.forloop_stack.items.len - 1);
-        }
-
-        // Check tablerowloop (only when inside a tablerow)
-        if (self.tablerow_stack.items.len > 0 and std.mem.eql(u8, name, "tablerowloop")) {
-            const info = self.tablerow_stack.items[self.tablerow_stack.items.len - 1];
-            // Use scratch allocator - these temporary objects are auto-cleaned at render end
-            var obj = Value.initObject(self.workAllocator());
-            obj.object.put("col", Value.initInt(@intCast(info.col))) catch {};
-            obj.object.put("col0", Value.initInt(@intCast(info.col0))) catch {};
-            obj.object.put("col_first", Value.initBool(info.col_first)) catch {};
-            obj.object.put("col_last", Value.initBool(info.col_last)) catch {};
-            obj.object.put("row", Value.initInt(@intCast(info.row))) catch {};
-            obj.object.put("index", Value.initInt(@intCast(info.index))) catch {};
-            obj.object.put("index0", Value.initInt(@intCast(info.index0))) catch {};
-            obj.object.put("first", Value.initBool(info.first)) catch {};
-            obj.object.put("last", Value.initBool(info.last)) catch {};
-            obj.object.put("length", Value.initInt(@intCast(info.length))) catch {};
-            obj.object.put("rindex", Value.initInt(@intCast(info.rindex))) catch {};
-            obj.object.put("rindex0", Value.initInt(@intCast(info.rindex0))) catch {};
-            return obj;
-        }
-
-        // Check include protected vars (keyword args shadow local_vars during include)
+        // Check include protected vars first (keyword args shadow local_vars during include)
         if (self.include_protected_vars.get(name)) |val| {
+            return val;
+        }
+
+        // Check local variables
+        if (self.local_vars.get(name)) |val| {
             return val;
         }
 
@@ -626,7 +624,8 @@ pub const Renderer = struct {
             return Value.initInt(count);
         }
 
-        return Value.initNil();
+        // Check context
+        return self.context.get(name) orelse Value.initNil();
     }
 
     /// Build a forloop object for the given stack index

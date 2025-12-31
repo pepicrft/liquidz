@@ -455,17 +455,12 @@ pub const Value = union(enum) {
         if (self == .empty) {
             return other.isEmpty();
         }
-        // Handle special 'blank' comparison
-        // In Ruby Liquid, comparing against blank calls .blank? on the value.
-        // If the value doesn't respond to .blank? (which most Ruby objects don't),
-        // the comparison returns nil (falsy), so `x == blank` is false for most values.
-        // Only values that explicitly implement .blank? and return true would match.
-        // Since we don't have drops with .blank? methods, we always return false.
+        // Handle special 'blank' comparison (comparing non-blank values against blank literal)
         if (other == .blank) {
-            return false;
+            return self.isBlank();
         }
         if (self == .blank) {
-            return false;
+            return other.isBlank();
         }
 
         switch (self) {
