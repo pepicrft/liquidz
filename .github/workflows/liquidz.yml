@@ -1,0 +1,82 @@
+name: liquidz
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  unit-tests:
+    name: Unit Tests (Zig)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Run Unit Tests
+        run: |
+          cd ${{ github.workspace }}
+          zig build test
+
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-linux
+          - aarch64-linux
+          - x86_64-macos
+          - aarch64-macos
+          - x86_64-windows
+          - aarch64-windows
+          - wasm32-wasi
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Build Release
+        run: zig build -Doptimize=ReleaseFast -Dtarget=${{ matrix.target }}
+
+  golden-tests:
+    name: Golden Liquid Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: jdx/mise-action@v2
+
+      - name: Build Binary
+        run: |
+          cd ${{ github.workspace }}
+          zig build
+
+      - name: Run Golden Tests
+        run: |
+          cd ${{ github.workspace }}/test
+          ruby run_golden_tests.rb
+
+  liquid-spec-tests:
+    name: Liquid Spec Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: jdx/mise-action@v2
+
+      - name: Build Binary
+        run: |
+          cd ${{ github.workspace }}
+          zig build
+
+      - name: Run Liquid Spec Tests
+        run: |
+          cd ${{ github.workspace }}/test
+          ruby run_liquid_spec_tests.rb
