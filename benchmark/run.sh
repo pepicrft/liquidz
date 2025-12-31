@@ -134,19 +134,75 @@ else
     echo -e "${BLUE}║       Liquidz vs Ruby Liquid Benchmark Suite               ║${NC}"
     echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
 
-    # Test a few representative templates
-    templates=(
-        "$SCRIPT_DIR/themes/dawn/snippets/header-dropdown-menu.liquid"
-        "$SCRIPT_DIR/themes/dawn/snippets/card-product.liquid"
-        "$SCRIPT_DIR/themes/dawn/snippets/pagination.liquid"
-        "$SCRIPT_DIR/themes/dawn/sections/main-product.liquid"
-    )
+    # Find all .liquid files in the Dawn theme
+    total_templates=0
+    successful_templates=0
+    total_liquidz_time=0
+    total_ruby_time=0
 
-    for template in "${templates[@]}"; do
-        if [ -f "$template" ]; then
-            benchmark_template "$template" "$(basename "$template")"
+    # Summary arrays
+    declare -a results
+
+    while IFS= read -r template; do
+        total_templates=$((total_templates + 1))
+        name=$(basename "$template")
+        rel_path="${template#$SCRIPT_DIR/themes/dawn/}"
+
+        echo -e "\n${YELLOW}[$total_templates] $rel_path${NC}"
+
+        # Run Liquidz benchmark
+        liquidz_output=$("$BENCH" "$template" "$DATA_FILE" "$ITERATIONS" 2>&1) || liquidz_output="ERROR"
+
+        if echo "$liquidz_output" | grep -q "^Avg:"; then
+            liquidz_avg=$(echo "$liquidz_output" | grep "Avg:" | awk '{print $2}')
+        else
+            echo "  Liquidz: FAILED"
+            continue
         fi
-    done
+
+        # Run Ruby benchmark
+        ruby_output=$(ruby "$RUBY_BENCH" "$template" "$DATA_FILE" "$ITERATIONS" 2>/dev/null) || ruby_output="ERROR"
+
+        if echo "$ruby_output" | grep -q "^Avg:"; then
+            ruby_avg=$(echo "$ruby_output" | grep "Avg:" | awk '{print $2}')
+        else
+            echo "  Liquidz: ${liquidz_avg} µs | Ruby: FAILED"
+            continue
+        fi
+
+        successful_templates=$((successful_templates + 1))
+
+        # Calculate speedup
+        if [ "$liquidz_avg" != "0" ] && [ -n "$liquidz_avg" ] && [ -n "$ruby_avg" ]; then
+            speedup=$(echo "scale=2; $ruby_avg / $liquidz_avg" | bc 2>/dev/null || echo "N/A")
+            echo "  Liquidz: ${liquidz_avg} µs | Ruby: ${ruby_avg} µs | ${speedup}x faster"
+
+            # Accumulate for average
+            total_liquidz_time=$(echo "$total_liquidz_time + $liquidz_avg" | bc)
+            total_ruby_time=$(echo "$total_ruby_time + $ruby_avg" | bc)
+        else
+            echo "  Liquidz: ${liquidz_avg} µs | Ruby: ${ruby_avg} µs"
+        fi
+
+    done < <(find "$SCRIPT_DIR/themes/dawn" -name "*.liquid" -type f | sort)
+
+    # Print summary
+    echo -e "\n${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║                        SUMMARY                             ║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo "Total templates: $total_templates"
+    echo "Successfully benchmarked: $successful_templates"
+
+    if [ "$successful_templates" -gt 0 ]; then
+        avg_liquidz=$(echo "scale=2; $total_liquidz_time / $successful_templates" | bc)
+        avg_ruby=$(echo "scale=2; $total_ruby_time / $successful_templates" | bc)
+        overall_speedup=$(echo "scale=2; $total_ruby_time / $total_liquidz_time" | bc 2>/dev/null || echo "N/A")
+
+        echo -e "\nAverage render time:"
+        echo "  Liquidz: ${avg_liquidz} µs"
+        echo "  Ruby:    ${avg_ruby} µs"
+        echo -e "\n${GREEN}Overall: Liquidz is ${overall_speedup}x faster${NC}"
+    fi
 fi
 
 # Cleanup

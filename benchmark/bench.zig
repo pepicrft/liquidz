@@ -44,8 +44,8 @@ pub fn main() !void {
     defer ast.deinit();
     defer parser.deinit();
 
-    // Warm up
-    for (0..10) |_| {
+    // Warm up (same as Ruby: 5 iterations)
+    for (0..5) |_| {
         var renderer = liquidz.Renderer.init(allocator, context);
         const result = try renderer.render(ast);
         renderer.deinit();

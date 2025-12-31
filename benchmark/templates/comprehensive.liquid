@@ -1,0 +1,361 @@
+{%- comment -%}
+  Comprehensive Liquid Template Benchmark
+  Tests all major tags and filters supported by Liquidz
+{%- endcomment -%}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ shop.name | escape }} - {{ product.title | upcase }}</title>
+  <meta name="description" content="{{ product.description | strip_html | truncate: 160 }}">
+</head>
+<body>
+
+{%- comment -%} Variable Assignment {%- endcomment -%}
+{% assign site_title = shop.name | append: " - " | append: product.title %}
+{% assign discounted_price = product.price | minus: 500 %}
+{% assign has_discount = true %}
+{% assign item_count = cart.items | size %}
+
+{%- comment -%} Capture Block {%- endcomment -%}
+{% capture full_address %}
+{{ customer.default_address.address1 }}, {{ customer.default_address.city }}, {{ customer.default_address.province_code }} {{ customer.default_address.zip }}
+{% endcapture %}
+
+<header>
+  <h1>{{ site_title | capitalize }}</h1>
+  <nav>
+    {% if customer %}
+      <span>Welcome, {{ customer.first_name | capitalize }}!</span>
+      <span>Orders: {{ customer.orders_count }}</span>
+      <span>Total Spent: {{ customer.total_spent | divided_by: 100 | round: 2 }}</span>
+    {% else %}
+      <a href="/login">Sign In</a>
+    {% endif %}
+    <a href="/cart">Cart ({{ item_count }})</a>
+  </nav>
+</header>
+
+<main>
+  {%- comment -%} Product Section {%- endcomment -%}
+  <section class="product">
+    <h2>{{ product.title | escape }}</h2>
+
+    {%- comment -%} Unless Tag {%- endcomment -%}
+    {% unless product.sold_out %}
+      <span class="available">In Stock</span>
+    {% else %}
+      <span class="sold-out">Sold Out</span>
+    {% endunless %}
+
+    {%- comment -%} Price with Math Filters {%- endcomment -%}
+    <div class="pricing">
+      {% if product.compare_at_price > product.price %}
+        <span class="original-price">
+          ${{ product.compare_at_price | divided_by: 100.0 | round: 2 }}
+        </span>
+        <span class="sale-price">
+          ${{ product.price | divided_by: 100.0 | round: 2 }}
+        </span>
+        {% assign savings = product.compare_at_price | minus: product.price %}
+        {% assign savings_percent = savings | times: 100 | divided_by: product.compare_at_price %}
+        <span class="discount">Save {{ savings_percent | floor }}%</span>
+      {% else %}
+        <span class="price">${{ product.price | divided_by: 100.0 | round: 2 }}</span>
+      {% endif %}
+    </div>
+
+    {%- comment -%} Product Description with String Filters {%- endcomment -%}
+    <div class="description">
+      {{ product.description | strip_html | newline_to_br }}
+    </div>
+
+    {%- comment -%} Tags with Array Filters {%- endcomment -%}
+    <div class="tags">
+      {% assign sorted_tags = product.tags | sort %}
+      {% for tag in sorted_tags %}
+        <span class="tag">{{ tag | capitalize }}</span>{% unless forloop.last %}, {% endunless %}
+      {% endfor %}
+    </div>
+
+    {%- comment -%} Product Options {%- endcomment -%}
+    <div class="options">
+      {% for option in product.options %}
+        <div class="option-group">
+          <label>{{ option.name }}:</label>
+          {% assign values = option.values %}
+          <select>
+            {% for value in values %}
+              <option value="{{ value | downcase | replace: ' ', '-' }}">{{ value }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  {%- comment -%} Variants Table with tablerow {%- endcomment -%}
+  <section class="variants">
+    <h3>Available Variants</h3>
+    <table>
+      <thead>
+        <tr><th>SKU</th><th>Title</th><th>Price</th><th>Stock</th></tr>
+      </thead>
+      <tbody>
+        {% tablerow variant in product.variants cols:1 %}
+          <td>{{ variant.sku | upcase }}</td>
+          <td>{{ variant.title }}</td>
+          <td>${{ variant.price | divided_by: 100.0 | round: 2 }}</td>
+          <td>{{ variant.inventory_quantity | at_least: 0 }}</td>
+        {% endtablerow %}
+      </tbody>
+    </table>
+  </section>
+
+  {%- comment -%} Media Gallery {%- endcomment -%}
+  <section class="gallery">
+    <h3>Product Images</h3>
+    {% assign media_count = product.media | size %}
+    {% for media in product.media %}
+      {% if media.media_type == "image" %}
+        <figure>
+          <img src="{{ media.src | escape }}"
+               alt="{{ media.alt | default: product.title | escape }}"
+               width="{{ media.width }}"
+               height="{{ media.height }}">
+          <figcaption>Image {{ forloop.index }} of {{ media_count }}</figcaption>
+        </figure>
+      {% endif %}
+    {% endfor %}
+  </section>
+
+  {%- comment -%} Cart Section {%- endcomment -%}
+  <section class="cart">
+    <h3>Shopping Cart</h3>
+    {% if cart.items.size > 0 %}
+      <ul>
+        {% for item in cart.items %}
+          <li class="cart-item{% if forloop.first %} first{% endif %}{% if forloop.last %} last{% endif %}">
+            <img src="{{ item.image | escape }}" alt="{{ item.title | escape }}">
+            <div class="item-details">
+              <a href="{{ item.url | escape }}">{{ item.title | truncate: 50 }}</a>
+              <span class="quantity">Qty: {{ item.quantity }}</span>
+              <span class="price">${{ item.line_price | divided_by: 100.0 | round: 2 }}</span>
+            </div>
+            {%- comment -%} Nested Loop with forloop variables {%- endcomment -%}
+            {% if forloop.index == 1 %}
+              <span class="badge">First Item</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+
+      {%- comment -%} Cart Totals using sum and map filters {%- endcomment -%}
+      {% assign quantities = cart.items | map: "quantity" %}
+      {% assign total_items = quantities | sum %}
+
+      <div class="cart-summary">
+        <p>Total Items: {{ total_items }}</p>
+        <p>Subtotal: ${{ cart.total_price | divided_by: 100.0 | round: 2 }}</p>
+      </div>
+    {% else %}
+      <p>Your cart is empty.</p>
+    {% endif %}
+  </section>
+
+  {%- comment -%} Case Statement {%- endcomment -%}
+  <section class="shipping">
+    <h3>Shipping Info</h3>
+    {% case customer.default_address.country_code %}
+      {% when "US" %}
+        <p>Free shipping on orders over $50!</p>
+      {% when "CA" %}
+        <p>Free shipping on orders over $75 CAD!</p>
+      {% when "GB" %}
+        <p>Free shipping on orders over 40 GBP!</p>
+      {% else %}
+        <p>International shipping available. Rates calculated at checkout.</p>
+    {% endcase %}
+  </section>
+
+  {%- comment -%} Customer Addresses with where filter {%- endcomment -%}
+  <section class="addresses">
+    <h3>Your Addresses</h3>
+    {% assign default_addresses = customer.addresses | where: "default", true %}
+    {% for addr in customer.addresses %}
+      <address{% if addr.default %} class="default"{% endif %}>
+        {{ addr.first_name }} {{ addr.last_name }}<br>
+        {% if addr.company != blank %}{{ addr.company }}<br>{% endif %}
+        {{ addr.address1 }}<br>
+        {% if addr.address2 != blank %}{{ addr.address2 }}<br>{% endif %}
+        {{ addr.city }}, {{ addr.province_code }} {{ addr.zip }}<br>
+        {{ addr.country }}
+      </address>
+    {% endfor %}
+  </section>
+
+  {%- comment -%} Increment/Decrement Counters {%- endcomment -%}
+  <section class="counters">
+    <p>Section {% increment section_counter %}</p>
+    <p>Section {% increment section_counter %}</p>
+    <p>Section {% increment section_counter %}</p>
+    <p>Countdown: {% decrement countdown %}</p>
+    <p>Countdown: {% decrement countdown %}</p>
+  </section>
+
+  {%- comment -%} String manipulation examples {%- endcomment -%}
+  <section class="string-examples">
+    <h3>Shop Information</h3>
+    <p>Store URL: {{ shop.url | remove: "https://" | remove: "http://" }}</p>
+    <p>Handle: {{ product.handle | replace: "-", " " | capitalize }}</p>
+    <p>Vendor: {{ product.vendor | prepend: "By " }}</p>
+    <p>Type: {{ product.type | downcase | replace: " ", "-" }}</p>
+
+    {%- comment -%} Split and Join {%- endcomment -%}
+    {% assign url_parts = shop.url | split: "/" %}
+    <p>Domain: {{ url_parts | last }}</p>
+
+    {%- comment -%} Base64 encoding {%- endcomment -%}
+    {% assign encoded_email = customer.email | base64_encode %}
+    <p>Encoded Email: {{ encoded_email | truncate: 30 }}</p>
+
+    {%- comment -%} URL encoding {%- endcomment -%}
+    {% assign search_query = "classic t-shirt blue" %}
+    <p>Search URL: /search?q={{ search_query | url_encode }}</p>
+  </section>
+
+  {%- comment -%} Array operations {%- endcomment -%}
+  <section class="array-examples">
+    <h3>Product Analysis</h3>
+
+    {%- comment -%} First and Last {%- endcomment -%}
+    {% assign first_variant = product.variants | first %}
+    {% assign last_variant = product.variants | last %}
+    <p>Price Range: ${{ first_variant.price | divided_by: 100.0 }} - ${{ last_variant.price | divided_by: 100.0 }}</p>
+
+    {%- comment -%} Reverse {%- endcomment -%}
+    {% assign reversed_images = product.images | reverse %}
+    <p>Last Image First: {{ reversed_images | first }}</p>
+
+    {%- comment -%} Compact and Uniq {%- endcomment -%}
+    {% assign all_options = product.variants | map: "option1" | uniq | compact %}
+    <p>Sizes: {{ all_options | join: ", " }}</p>
+
+    {%- comment -%} Concat {%- endcomment -%}
+    {% assign more_tags = "premium,exclusive" | split: "," %}
+    {% assign all_tags = product.tags | concat: more_tags | sort | uniq %}
+    <p>All Tags: {{ all_tags | join: " | " }}</p>
+  </section>
+
+  {%- comment -%} Math operations {%- endcomment -%}
+  <section class="math-examples">
+    <h3>Price Calculations</h3>
+    {% assign base_price = product.price %}
+    {% assign tax_rate = 8.25 %}
+    {% assign tax_amount = base_price | times: tax_rate | divided_by: 100 | round %}
+    {% assign total_with_tax = base_price | plus: tax_amount %}
+
+    <p>Base Price: ${{ base_price | divided_by: 100.0 | round: 2 }}</p>
+    <p>Tax ({{ tax_rate }}%): ${{ tax_amount | divided_by: 100.0 | round: 2 }}</p>
+    <p>Total: ${{ total_with_tax | divided_by: 100.0 | round: 2 }}</p>
+
+    {%- comment -%} Abs, Ceil, Floor {%- endcomment -%}
+    {% assign negative_value = -42 %}
+    <p>Absolute: {{ negative_value | abs }}</p>
+    <p>Ceiling of 3.2: {{ 3.2 | ceil }}</p>
+    <p>Floor of 3.8: {{ 3.8 | floor }}</p>
+
+    {%- comment -%} At least / At most {%- endcomment -%}
+    {% assign quantity = 0 %}
+    <p>Min quantity: {{ quantity | at_least: 1 }}</p>
+    <p>Max quantity: {{ 100 | at_most: 10 }}</p>
+
+    {%- comment -%} Modulo {%- endcomment -%}
+    <p>Items per row (mod 3): {{ cart.items.size | modulo: 3 }}</p>
+  </section>
+
+  {%- comment -%} Liquid tag for multiple statements {%- endcomment -%}
+  <section class="liquid-tag">
+    {% liquid
+      assign greeting = "Hello"
+      assign name = customer.first_name | default: "Guest"
+      assign full_greeting = greeting | append: ", " | append: name | append: "!"
+      echo full_greeting
+    %}
+  </section>
+
+  {%- comment -%} For loop with offset and limit {%- endcomment -%}
+  <section class="pagination">
+    <h3>Featured Variants (2-4)</h3>
+    {% for variant in product.variants offset:1 limit:3 %}
+      <div class="variant">
+        {{ variant.title }} - ${{ variant.price | divided_by: 100.0 }}
+      </div>
+    {% endfor %}
+  </section>
+
+  {%- comment -%} For loop with else {%- endcomment -%}
+  <section class="empty-check">
+    {% assign empty_array = "" | split: "," %}
+    {% for item in empty_array %}
+      <p>{{ item }}</p>
+    {% else %}
+      <p>No items to display.</p>
+    {% endfor %}
+  </section>
+
+  {%- comment -%} Nested conditionals {%- endcomment -%}
+  <section class="recommendations">
+    <h3>Recommendations</h3>
+    {% if customer %}
+      {% if customer.orders_count > 10 %}
+        <p>Thank you for being a loyal customer! Here's 20% off your next order.</p>
+      {% elsif customer.orders_count > 5 %}
+        <p>Thanks for shopping with us! Enjoy 10% off.</p>
+      {% elsif customer.orders_count > 0 %}
+        <p>Welcome back! Check out our new arrivals.</p>
+      {% else %}
+        <p>Welcome to {{ shop.name }}!</p>
+      {% endif %}
+    {% else %}
+      <p>Sign up for exclusive offers!</p>
+    {% endif %}
+  </section>
+
+  {%- comment -%} Date filter {%- endcomment -%}
+  <section class="dates">
+    <p>Current timestamp: {{ "now" | date: "%Y-%m-%d %H:%M:%S" }}</p>
+    <p>Year: {{ "now" | date: "%Y" }}</p>
+  </section>
+
+  {%- comment -%} JSON output {%- endcomment -%}
+  <section class="data">
+    <script type="application/json" id="product-data">
+      {{ product | json }}
+    </script>
+  </section>
+
+  {%- comment -%} Raw block {%- endcomment -%}
+  <section class="code-example">
+    <pre>
+{% raw %}
+Example Liquid code:
+{{ product.title }}
+{% for item in cart.items %}
+  {{ item.title }}
+{% endfor %}
+{% endraw %}
+    </pre>
+  </section>
+
+</main>
+
+<footer>
+  <p>&copy; {{ "now" | date: "%Y" }} {{ shop.name | escape }}. All rights reserved.</p>
+  <p>Shipping: {{ shop.shipping_policy.body | truncatewords: 10 }}</p>
+  <p>Contact: {{ customer.email | default: "support@example.com" | escape }}</p>
+  <address>{{ full_address | strip | escape }}</address>
+</footer>
+
+</body>
+</html>

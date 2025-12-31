@@ -151,27 +151,33 @@ pub const Value = union(enum) {
     pub fn get(self: Self, key: []const u8) ?Value {
         return switch (self) {
             .object => |obj| {
-                // First try regular property lookup
+                // First try regular property lookup (most common case)
                 if (obj.get(key)) |v| return v;
 
                 // Special property 'size' for objects (only if not shadowed)
-                if (std.mem.eql(u8, key, "size")) {
+                // Check length first to avoid full string comparison
+                if (key.len == 4 and std.mem.eql(u8, key, "size")) {
                     return Self.initInt(@intCast(obj.count()));
                 }
                 // 'first' and 'last' on objects require allocator - not supported here
                 return null;
             },
             .array => |arr| {
-                // Special properties for arrays
-                if (std.mem.eql(u8, key, "first")) {
-                    return if (arr.len > 0) arr[0] else null;
-                } else if (std.mem.eql(u8, key, "last")) {
-                    return if (arr.len > 0) arr[arr.len - 1] else null;
-                } else if (std.mem.eql(u8, key, "size")) {
-                    return Self.initInt(@intCast(arr.len));
+                // Fast path: try numeric index first (most common case)
+                if (key.len > 0 and (key[0] >= '0' and key[0] <= '9' or key[0] == '-')) {
+                    if (std.fmt.parseInt(i64, key, 10)) |idx| {
+                        return arrayGet(arr, idx);
+                    } else |_| {}
                 }
-                // Try numeric index
-                return arrayGet(arr, std.fmt.parseInt(i64, key, 10) catch return null);
+                // Special properties for arrays (less common)
+                if (key.len == 4 and std.mem.eql(u8, key, "size")) {
+                    return Self.initInt(@intCast(arr.len));
+                } else if (key.len == 5 and std.mem.eql(u8, key, "first")) {
+                    return if (arr.len > 0) arr[0] else null;
+                } else if (key.len == 4 and std.mem.eql(u8, key, "last")) {
+                    return if (arr.len > 0) arr[arr.len - 1] else null;
+                }
+                return null;
             },
             .string => |s| {
                 // Special properties for strings
@@ -449,12 +455,17 @@ pub const Value = union(enum) {
         if (self == .empty) {
             return other.isEmpty();
         }
-        // Handle special 'blank' comparison (comparing non-blank values against blank literal)
+        // Handle special 'blank' comparison
+        // In Ruby Liquid, comparing against blank calls .blank? on the value.
+        // If the value doesn't respond to .blank? (which most Ruby objects don't),
+        // the comparison returns nil (falsy), so `x == blank` is false for most values.
+        // Only values that explicitly implement .blank? and return true would match.
+        // Since we don't have drops with .blank? methods, we always return false.
         if (other == .blank) {
-            return self.isBlank();
+            return false;
         }
         if (self == .blank) {
-            return other.isBlank();
+            return false;
         }
 
         switch (self) {
