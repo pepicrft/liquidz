@@ -69,8 +69,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: echo "version=$(git cliff --bumped-version)" >> "$GITHUB_OUTPUT"
 
-  build:
-    name: Build (${{ matrix.target }})
+  build-executables:
+    name: Build executable (${{ matrix.target }})
     needs: check-release
     if: needs.check-release.outputs.should-release == 'true'
     runs-on: ubuntu-latest
@@ -78,19 +78,23 @@ jobs:
       matrix:
         include:
           - target: x86_64-linux
-            artifact: liquidz-linux-x86_64
+            artifact: liquidz-x86_64-linux
+            extension: ""
           - target: aarch64-linux
-            artifact: liquidz-linux-aarch64
+            artifact: liquidz-aarch64-linux
+            extension: ""
           - target: x86_64-macos
-            artifact: liquidz-macos-x86_64
+            artifact: liquidz-x86_64-macos
+            extension: ""
           - target: aarch64-macos
-            artifact: liquidz-macos-aarch64
+            artifact: liquidz-aarch64-macos
+            extension: ""
           - target: x86_64-windows
-            artifact: liquidz-windows-x86_64
+            artifact: liquidz-x86_64-windows
+            extension: ".exe"
           - target: aarch64-windows
-            artifact: liquidz-windows-aarch64
-          - target: wasm32-wasi
-            artifact: liquidz-wasm
+            artifact: liquidz-aarch64-windows
+            extension: ".exe"
     steps:
       - uses: actions/checkout@v4
 
@@ -99,30 +103,65 @@ jobs:
       - name: Build release binary
         run: zig build -Doptimize=ReleaseFast -Dtarget=${{ matrix.target }}
 
-      - name: Package artifacts
+      - name: Package executable
+        run: |
+          mkdir -p dist
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            cp zig-out/bin/liquidz${{ matrix.extension }} dist/${{ matrix.artifact }}${{ matrix.extension }}
+            cd dist && zip ${{ matrix.artifact }}.zip ${{ matrix.artifact }}${{ matrix.extension }}
+          else
+            cp zig-out/bin/liquidz dist/${{ matrix.artifact }}
+            cd dist && tar -czvf ${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/${{ matrix.artifact }}.tar.gz
+            dist/${{ matrix.artifact }}.zip
+          if-no-files-found: ignore
+
+  build-libraries:
+    name: Build library (${{ matrix.target }})
+    needs: check-release
+    if: needs.check-release.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-linux
+            artifact: libliquidz-x86_64-linux
+          - target: aarch64-linux
+            artifact: libliquidz-aarch64-linux
+          - target: x86_64-macos
+            artifact: libliquidz-x86_64-macos
+          - target: aarch64-macos
+            artifact: libliquidz-aarch64-macos
+          - target: x86_64-windows
+            artifact: libliquidz-x86_64-windows
+          - target: aarch64-windows
+            artifact: libliquidz-aarch64-windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Build release library
+        run: zig build -Doptimize=ReleaseFast -Dtarget=${{ matrix.target }}
+
+      - name: Package library
         run: |
           mkdir -p dist/${{ matrix.artifact }}
 
-          # Copy binary (handle Windows .exe extension)
-          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
-            cp zig-out/bin/liquidz.exe dist/${{ matrix.artifact }}/ 2>/dev/null || true
-          elif [[ "${{ matrix.target }}" == "wasm32-wasi" ]]; then
-            cp zig-out/bin/liquidz.wasm dist/${{ matrix.artifact }}/ 2>/dev/null || true
-            cp zig-out/lib/*.wasm dist/${{ matrix.artifact }}/ 2>/dev/null || true
-          else
-            cp zig-out/bin/liquidz dist/${{ matrix.artifact }}/ 2>/dev/null || true
-          fi
-
-          # Copy libraries if they exist
-          cp zig-out/lib/*.a dist/${{ matrix.artifact }}/ 2>/dev/null || true
-          cp zig-out/lib/*.so dist/${{ matrix.artifact }}/ 2>/dev/null || true
-          cp zig-out/lib/*.dylib dist/${{ matrix.artifact }}/ 2>/dev/null || true
-          cp zig-out/lib/*.dll dist/${{ matrix.artifact }}/ 2>/dev/null || true
+          # Copy static library
+          cp zig-out/lib/libliquidz_ffi.a dist/${{ matrix.artifact }}/ 2>/dev/null || true
+          cp zig-out/lib/liquidz_ffi.lib dist/${{ matrix.artifact }}/ 2>/dev/null || true
 
           # Copy C headers if they exist
           cp -r zig-out/include dist/${{ matrix.artifact }}/ 2>/dev/null || true
 
-          # Create tarball (or zip for Windows)
           cd dist
           if [[ "${{ matrix.target }}" == *"windows"* ]]; then
             zip -r ${{ matrix.artifact }}.zip ${{ matrix.artifact }}
@@ -139,9 +178,34 @@ jobs:
             dist/${{ matrix.artifact }}.zip
           if-no-files-found: ignore
 
+  build-wasm:
+    name: Build WebAssembly
+    needs: check-release
+    if: needs.check-release.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Build WASM
+        run: zig build -Doptimize=ReleaseFast -Dtarget=wasm32-wasi
+
+      - name: Package WASM
+        run: |
+          mkdir -p dist/liquidz-wasm
+          cp zig-out/bin/liquidz.wasm dist/liquidz-wasm/ 2>/dev/null || true
+          cd dist && tar -czvf liquidz-wasm.tar.gz liquidz-wasm
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: liquidz-wasm
+          path: dist/liquidz-wasm.tar.gz
+
   release:
     name: Create Release
-    needs: [check-release, build]
+    needs: [check-release, build-executables, build-libraries, build-wasm]
     if: needs.check-release.outputs.should-release == 'true'
     runs-on: ubuntu-latest
     steps:
