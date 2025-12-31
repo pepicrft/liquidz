@@ -1,0 +1,610 @@
+{
+  "shop": {
+    "name": "Demo Store",
+    "url": "https://demo-store.myshopify.com",
+    "description": "A demo Shopify store for benchmarking",
+    "password_message": "",
+    "customer_accounts_enabled": true,
+    "enabled_payment_types": ["visa", "mastercard", "paypal"],
+    "shipping_policy": {
+      "body": "We ship worldwide within 5-7 business days.",
+      "url": "/policies/shipping-policy"
+    },
+    "policies": [],
+    "features": {
+      "login_with_shop_classic_customer_accounts": true,
+      "follow_on_shop": true
+    },
+    "checkout": {
+      "guest_login": true
+    }
+  },
+
+  "settings": {
+    "animations_reveal_on_scroll": true,
+    "page_width": 1200,
+    "type_body_font": "Helvetica",
+    "type_header_font": "Georgia",
+    "logo": "/assets/logo.png",
+    "logo_width": 150,
+    "card_style": "standard",
+    "filter_type": "vertical",
+    "quick_add": "standard",
+    "colors_solid_button_labels": "#ffffff",
+    "colors_accent_1": "#121212",
+    "colors_accent_2": "#334fb4",
+    "colors_text": "#121212",
+    "colors_background_1": "#ffffff",
+    "colors_background_2": "#f3f3f3"
+  },
+
+  "cart": {
+    "item_count": 3,
+    "total_price": 15999,
+    "items": [
+      {
+        "id": 1001,
+        "title": "Classic T-Shirt - Medium / Blue",
+        "product": {
+          "id": 101,
+          "title": "Classic T-Shirt",
+          "url": "/products/classic-t-shirt",
+          "featured_image": "/products/tshirt-blue.jpg"
+        },
+        "variant": {
+          "id": 1001,
+          "title": "Medium / Blue",
+          "price": 2999
+        },
+        "quantity": 2,
+        "price": 2999,
+        "line_price": 5998,
+        "url": "/products/classic-t-shirt?variant=1001",
+        "image": "/products/tshirt-blue.jpg"
+      },
+      {
+        "id": 1002,
+        "title": "Premium Hoodie - Large / Black",
+        "product": {
+          "id": 102,
+          "title": "Premium Hoodie",
+          "url": "/products/premium-hoodie",
+          "featured_image": "/products/hoodie-black.jpg"
+        },
+        "variant": {
+          "id": 1002,
+          "title": "Large / Black",
+          "price": 5999
+        },
+        "quantity": 1,
+        "price": 5999,
+        "line_price": 5999,
+        "url": "/products/premium-hoodie?variant=1002",
+        "image": "/products/hoodie-black.jpg"
+      },
+      {
+        "id": 1003,
+        "title": "Canvas Sneakers - 10 / White",
+        "product": {
+          "id": 103,
+          "title": "Canvas Sneakers",
+          "url": "/products/canvas-sneakers",
+          "featured_image": "/products/sneakers-white.jpg"
+        },
+        "variant": {
+          "id": 1003,
+          "title": "10 / White",
+          "price": 4002
+        },
+        "quantity": 1,
+        "price": 4002,
+        "line_price": 4002,
+        "url": "/products/canvas-sneakers?variant=1003",
+        "image": "/products/sneakers-white.jpg"
+      }
+    ],
+    "taxes_included": false,
+    "duties_included": false,
+    "note": "",
+    "currency": {
+      "iso_code": "USD",
+      "symbol": "$"
+    },
+    "cart_level_discount_applications": []
+  },
+
+  "customer": {
+    "id": 12345,
+    "email": "customer@example.com",
+    "first_name": "John",
+    "last_name": "Doe",
+    "name": "John Doe",
+    "accepts_marketing": true,
+    "orders_count": 5,
+    "total_spent": 45000,
+    "addresses": [
+      {
+        "id": 1,
+        "first_name": "John",
+        "last_name": "Doe",
+        "company": "Acme Inc",
+        "address1": "123 Main St",
+        "address2": "Suite 100",
+        "city": "New York",
+        "province": "New York",
+        "province_code": "NY",
+        "country": "United States",
+        "country_code": "US",
+        "zip": "10001",
+        "phone": "+1-555-123-4567",
+        "default": true
+      }
+    ],
+    "default_address": {
+      "id": 1,
+      "first_name": "John",
+      "last_name": "Doe",
+      "company": "Acme Inc",
+      "address1": "123 Main St",
+      "address2": "Suite 100",
+      "city": "New York",
+      "province": "New York",
+      "province_code": "NY",
+      "country": "United States",
+      "country_code": "US",
+      "zip": "10001",
+      "phone": "+1-555-123-4567",
+      "default": true
+    }
+  },
+
+  "product": {
+    "id": 101,
+    "title": "Classic T-Shirt",
+    "handle": "classic-t-shirt",
+    "description": "<p>A comfortable classic t-shirt made from 100% organic cotton.</p>",
+    "vendor": "Demo Brand",
+    "type": "Apparel",
+    "url": "/products/classic-t-shirt",
+    "price": 2999,
+    "price_min": 2999,
+    "price_max": 3499,
+    "compare_at_price": 3999,
+    "compare_at_price_min": 3999,
+    "compare_at_price_max": 4499,
+    "available": true,
+    "sold_out": false,
+    "has_only_default_variant": false,
+    "quantity_price_breaks_configured": false,
+    "tags": ["cotton", "casual", "bestseller"],
+    "options": [
+      {"name": "Size", "position": 1, "values": ["Small", "Medium", "Large", "XL"]},
+      {"name": "Color", "position": 2, "values": ["Blue", "Black", "White", "Red"]}
+    ],
+    "featured_media": {
+      "id": 1,
+      "alt": "Classic T-Shirt in Blue",
+      "aspect_ratio": 1.0,
+      "width": 1000,
+      "height": 1000,
+      "src": "/products/tshirt-blue.jpg",
+      "preview_image": {
+        "src": "/products/tshirt-blue.jpg",
+        "width": 1000,
+        "height": 1000
+      },
+      "media_type": "image"
+    },
+    "featured_image": "/products/tshirt-blue.jpg",
+    "media": [
+      {
+        "id": 1,
+        "alt": "Classic T-Shirt in Blue",
+        "aspect_ratio": 1.0,
+        "width": 1000,
+        "height": 1000,
+        "src": "/products/tshirt-blue.jpg",
+        "preview_image": {"src": "/products/tshirt-blue.jpg", "width": 1000, "height": 1000},
+        "media_type": "image",
+        "position": 1
+      },
+      {
+        "id": 2,
+        "alt": "Classic T-Shirt in Black",
+        "aspect_ratio": 1.0,
+        "width": 1000,
+        "height": 1000,
+        "src": "/products/tshirt-black.jpg",
+        "preview_image": {"src": "/products/tshirt-black.jpg", "width": 1000, "height": 1000},
+        "media_type": "image",
+        "position": 2
+      },
+      {
+        "id": 3,
+        "alt": "Classic T-Shirt Detail",
+        "aspect_ratio": 1.0,
+        "width": 1000,
+        "height": 1000,
+        "src": "/products/tshirt-detail.jpg",
+        "preview_image": {"src": "/products/tshirt-detail.jpg", "width": 1000, "height": 1000},
+        "media_type": "image",
+        "position": 3
+      }
+    ],
+    "images": [
+      "/products/tshirt-blue.jpg",
+      "/products/tshirt-black.jpg",
+      "/products/tshirt-detail.jpg"
+    ],
+    "variants": [
+      {
+        "id": 1001,
+        "title": "Small / Blue",
+        "sku": "TSH-S-BLU",
+        "price": 2999,
+        "compare_at_price": 3999,
+        "available": true,
+        "inventory_quantity": 50,
+        "inventory_management": "shopify",
+        "option1": "Small",
+        "option2": "Blue",
+        "featured_media": {"id": 1, "src": "/products/tshirt-blue.jpg"},
+        "quantity_rule": {"min": 1, "max": 10, "increment": 1}
+      },
+      {
+        "id": 1002,
+        "title": "Medium / Blue",
+        "sku": "TSH-M-BLU",
+        "price": 2999,
+        "compare_at_price": 3999,
+        "available": true,
+        "inventory_quantity": 75,
+        "inventory_management": "shopify",
+        "option1": "Medium",
+        "option2": "Blue",
+        "featured_media": {"id": 1, "src": "/products/tshirt-blue.jpg"},
+        "quantity_rule": {"min": 1, "max": 10, "increment": 1}
+      },
+      {
+        "id": 1003,
+        "title": "Large / Blue",
+        "sku": "TSH-L-BLU",
+        "price": 2999,
+        "compare_at_price": 3999,
+        "available": true,
+        "inventory_quantity": 60,
+        "inventory_management": "shopify",
+        "option1": "Large",
+        "option2": "Blue",
+        "featured_media": {"id": 1, "src": "/products/tshirt-blue.jpg"},
+        "quantity_rule": {"min": 1, "max": 10, "increment": 1}
+      },
+      {
+        "id": 1004,
+        "title": "Small / Black",
+        "sku": "TSH-S-BLK",
+        "price": 2999,
+        "compare_at_price": 3999,
+        "available": true,
+        "inventory_quantity": 45,
+        "inventory_management": "shopify",
+        "option1": "Small",
+        "option2": "Black",
+        "featured_media": {"id": 2, "src": "/products/tshirt-black.jpg"},
+        "quantity_rule": {"min": 1, "max": 10, "increment": 1}
+      },
+      {
+        "id": 1005,
+        "title": "Medium / Black",
+        "sku": "TSH-M-BLK",
+        "price": 2999,
+        "compare_at_price": 3999,
+        "available": false,
+        "inventory_quantity": 0,
+        "inventory_management": "shopify",
+        "option1": "Medium",
+        "option2": "Black",
+        "featured_media": {"id": 2, "src": "/products/tshirt-black.jpg"},
+        "quantity_rule": {"min": 1, "max": 10, "increment": 1}
+      }
+    ],
+    "selected_or_first_available_variant": {
+      "id": 1001,
+      "title": "Small / Blue",
+      "sku": "TSH-S-BLU",
+      "price": 2999,
+      "compare_at_price": 3999,
+      "available": true,
+      "inventory_quantity": 50,
+      "featured_media": {"id": 1, "src": "/products/tshirt-blue.jpg"},
+      "quantity_rule": {"min": 1, "max": 10, "increment": 1},
+      "quantity_price_breaks": []
+    },
+    "metafields": {
+      "reviews": {
+        "rating": {
+          "value": {
+            "rating": 4.5,
+            "scale_max": 5
+          }
+        },
+        "rating_count": 128
+      }
+    }
+  },
+
+  "collection": {
+    "id": 201,
+    "title": "Summer Collection",
+    "handle": "summer-collection",
+    "description": "Fresh styles for the summer season",
+    "url": "/collections/summer-collection",
+    "image": "/collections/summer-banner.jpg",
+    "products_count": 48,
+    "all_products_count": 48,
+    "products": [],
+    "all_tags": ["cotton", "casual", "summer", "lightweight"],
+    "filters": [
+      {
+        "label": "Size",
+        "type": "list",
+        "param_name": "filter.v.option.size",
+        "values": [
+          {"label": "Small", "value": "Small", "count": 12, "active": false},
+          {"label": "Medium", "value": "Medium", "count": 15, "active": false},
+          {"label": "Large", "value": "Large", "count": 14, "active": false},
+          {"label": "XL", "value": "XL", "count": 7, "active": false}
+        ]
+      },
+      {
+        "label": "Color",
+        "type": "list",
+        "param_name": "filter.v.option.color",
+        "values": [
+          {"label": "Blue", "value": "Blue", "count": 10, "active": false},
+          {"label": "Black", "value": "Black", "count": 12, "active": false},
+          {"label": "White", "value": "White", "count": 8, "active": false}
+        ]
+      }
+    ],
+    "sort_options": [
+      {"name": "Featured", "value": "manual"},
+      {"name": "Best selling", "value": "best-selling"},
+      {"name": "Alphabetically, A-Z", "value": "title-ascending"},
+      {"name": "Price, low to high", "value": "price-ascending"},
+      {"name": "Price, high to low", "value": "price-descending"}
+    ],
+    "sort_by": "manual"
+  },
+
+  "collections": [
+    {"id": 201, "title": "Summer Collection", "handle": "summer-collection", "url": "/collections/summer-collection"},
+    {"id": 202, "title": "Winter Collection", "handle": "winter-collection", "url": "/collections/winter-collection"},
+    {"id": 203, "title": "New Arrivals", "handle": "new-arrivals", "url": "/collections/new-arrivals"}
+  ],
+
+  "products": [],
+
+  "localization": {
+    "available_countries": [
+      {"iso_code": "US", "name": "United States", "currency": {"iso_code": "USD", "symbol": "$"}},
+      {"iso_code": "CA", "name": "Canada", "currency": {"iso_code": "CAD", "symbol": "$"}},
+      {"iso_code": "GB", "name": "United Kingdom", "currency": {"iso_code": "GBP", "symbol": "£"}}
+    ],
+    "available_languages": [
+      {"iso_code": "en", "name": "English", "endonym_name": "English", "primary": true},
+      {"iso_code": "es", "name": "Spanish", "endonym_name": "Español", "primary": false},
+      {"iso_code": "fr", "name": "French", "endonym_name": "Français", "primary": false}
+    ],
+    "country": {"iso_code": "US", "name": "United States", "currency": {"iso_code": "USD", "symbol": "$"}},
+    "language": {"iso_code": "en", "name": "English", "endonym_name": "English", "primary": true},
+    "market": {"id": 1, "handle": "us"}
+  },
+
+  "request": {
+    "host": "demo-store.myshopify.com",
+    "path": "/",
+    "page_type": "index",
+    "origin": "https://demo-store.myshopify.com",
+    "design_mode": false,
+    "locale": {"iso_code": "en"}
+  },
+
+  "routes": {
+    "root_url": "/",
+    "cart_url": "/cart",
+    "account_url": "/account",
+    "account_login_url": "/account/login",
+    "account_register_url": "/account/register",
+    "account_logout_url": "/account/logout",
+    "account_addresses_url": "/account/addresses",
+    "collections_url": "/collections",
+    "all_products_collection_url": "/collections/all",
+    "search_url": "/search",
+    "product_recommendations_url": "/recommendations/products"
+  },
+
+  "section": {
+    "id": "template--main",
+    "settings": {
+      "padding_top": 36,
+      "padding_bottom": 36,
+      "color_scheme": "background-1",
+      "image": null,
+      "image_behavior": "none",
+      "image_shape": "default",
+      "image_ratio": "adapt",
+      "image_height": "medium",
+      "image_zoom": "hover",
+      "columns_desktop": 4,
+      "columns_mobile": 2,
+      "full_width": false,
+      "heading": "Featured Products",
+      "heading_size": "h1",
+      "title": "Section Title",
+      "layout": "grid",
+      "filter_type": "vertical",
+      "quick_add": "standard",
+      "show_vendor": true,
+      "show_rating": true,
+      "enable_filtering": true,
+      "enable_sorting": true,
+      "enable_video_looping": false,
+      "enable_language_selector": true,
+      "enable_country_selector": true,
+      "auto_rotate": false,
+      "slider_visual": "dots",
+      "mobile_thumbnails": "hide",
+      "hide_variants": false,
+      "gallery_layout": "stacked",
+      "menu_type_desktop": "dropdown",
+      "menu": {
+        "links": [
+          {
+            "title": "Home",
+            "url": "/",
+            "handle": "home",
+            "active": true,
+            "current": true,
+            "child_active": false,
+            "links": []
+          },
+          {
+            "title": "Catalog",
+            "url": "/collections/all",
+            "handle": "catalog",
+            "active": false,
+            "current": false,
+            "child_active": false,
+            "links": [
+              {"title": "Summer", "url": "/collections/summer", "handle": "summer", "current": false, "links": []},
+              {"title": "Winter", "url": "/collections/winter", "handle": "winter", "current": false, "links": []},
+              {"title": "Sale", "url": "/collections/sale", "handle": "sale", "current": false, "links": [
+                {"title": "Under $25", "url": "/collections/sale?filter=price:0-25", "handle": "under-25", "current": false},
+                {"title": "Under $50", "url": "/collections/sale?filter=price:0-50", "handle": "under-50", "current": false}
+              ]}
+            ]
+          },
+          {
+            "title": "About",
+            "url": "/pages/about",
+            "handle": "about",
+            "active": false,
+            "current": false,
+            "child_active": false,
+            "links": []
+          },
+          {
+            "title": "Contact",
+            "url": "/pages/contact",
+            "handle": "contact",
+            "active": false,
+            "current": false,
+            "child_active": false,
+            "links": []
+          }
+        ]
+      }
+    },
+    "blocks": [
+      {
+        "id": "block-1",
+        "type": "heading",
+        "shopify_attributes": "data-block-id=\"block-1\"",
+        "settings": {
+          "heading": "Welcome to our store",
+          "heading_size": "h1"
+        }
+      },
+      {
+        "id": "block-2",
+        "type": "text",
+        "shopify_attributes": "data-block-id=\"block-2\"",
+        "settings": {
+          "text": "Discover our latest collection",
+          "text_style": "body"
+        }
+      }
+    ]
+  },
+
+  "page": {
+    "id": 301,
+    "title": "About Us",
+    "handle": "about",
+    "url": "/pages/about",
+    "content": "<p>We are a demo store showcasing Liquidz benchmarks.</p>",
+    "author": "Demo Store",
+    "template_suffix": ""
+  },
+
+  "blog": {
+    "id": 401,
+    "title": "News",
+    "handle": "news",
+    "url": "/blogs/news",
+    "articles_count": 10,
+    "articles": []
+  },
+
+  "article": {
+    "id": 501,
+    "title": "Summer Style Guide",
+    "handle": "summer-style-guide",
+    "url": "/blogs/news/summer-style-guide",
+    "author": "Jane Doe",
+    "content": "<p>Here are our top picks for summer...</p>",
+    "excerpt": "Here are our top picks for summer...",
+    "created_at": "2024-06-15T10:00:00Z",
+    "published_at": "2024-06-15T10:00:00Z",
+    "image": "/blogs/summer-style.jpg",
+    "tags": ["summer", "fashion", "guide"],
+    "comments_count": 5,
+    "comments_enabled": true,
+    "comments": []
+  },
+
+  "search": {
+    "performed": true,
+    "terms": "t-shirt",
+    "results_count": 12,
+    "results": [],
+    "types": ["product", "article", "page"]
+  },
+
+  "form": {
+    "id": "contact-form",
+    "posted_successfully": false,
+    "errors": []
+  },
+
+  "paginate": {
+    "current_page": 1,
+    "current_offset": 0,
+    "items": 48,
+    "parts": [],
+    "next": {"url": "/collections/all?page=2", "title": "Next"},
+    "previous": null,
+    "page_size": 24,
+    "pages": 2
+  },
+
+  "theme": {
+    "name": "Dawn",
+    "id": 12345,
+    "role": "main"
+  },
+
+  "content_for_header": "<!-- Shopify header scripts -->",
+  "content_for_layout": "<!-- Page content -->",
+
+  "forloop": {
+    "index": 1,
+    "index0": 0,
+    "rindex": 10,
+    "rindex0": 9,
+    "first": true,
+    "last": false,
+    "length": 10
+  }
+}

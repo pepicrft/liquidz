@@ -4,3 +4,9 @@
 [submodule "test/liquid-spec"]
 	path = test/liquid-spec
 	url = https://github.com/Shopify/liquid-spec.git
+[submodule "benchmark/themes/benchmark/themes/dawn"]
+	path = benchmark/themes/benchmark/themes/dawn
+	url = https://github.com/Shopify/dawn.git
+[submodule "benchmark/themes/dawn"]
+	path = benchmark/themes/dawn
+	url = https://github.com/Shopify/dawn.git

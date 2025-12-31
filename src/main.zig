@@ -40,7 +40,18 @@ pub fn main() !void {
     // Parse JSON data if provided
     var context = liquidz.Value.initNil();
     if (args.len >= 3) {
-        context = try liquidz.Value.parseJson(allocator, args[2]);
+        const json_arg = args[2];
+        // Check if it's a file path (starts with @ or ends with .json)
+        if (json_arg.len > 0 and json_arg[0] == '@') {
+            // Read JSON from file (e.g., @data.json)
+            const file = try std.fs.cwd().openFile(json_arg[1..], .{});
+            defer file.close();
+            const json_data = try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+            defer allocator.free(json_data);
+            context = try liquidz.Value.parseJson(allocator, json_data);
+        } else {
+            context = try liquidz.Value.parseJson(allocator, json_arg);
+        }
     }
     defer (&context).deinit(allocator);
 

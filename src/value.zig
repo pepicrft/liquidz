@@ -151,27 +151,33 @@ pub const Value = union(enum) {
     pub fn get(self: Self, key: []const u8) ?Value {
         return switch (self) {
             .object => |obj| {
-                // First try regular property lookup
+                // First try regular property lookup (most common case)
                 if (obj.get(key)) |v| return v;
 
                 // Special property 'size' for objects (only if not shadowed)
-                if (std.mem.eql(u8, key, "size")) {
+                // Check length first to avoid full string comparison
+                if (key.len == 4 and std.mem.eql(u8, key, "size")) {
                     return Self.initInt(@intCast(obj.count()));
                 }
                 // 'first' and 'last' on objects require allocator - not supported here
                 return null;
             },
             .array => |arr| {
-                // Special properties for arrays
-                if (std.mem.eql(u8, key, "first")) {
-                    return if (arr.len > 0) arr[0] else null;
-                } else if (std.mem.eql(u8, key, "last")) {
-                    return if (arr.len > 0) arr[arr.len - 1] else null;
-                } else if (std.mem.eql(u8, key, "size")) {
-                    return Self.initInt(@intCast(arr.len));
+                // Fast path: try numeric index first (most common case)
+                if (key.len > 0 and (key[0] >= '0' and key[0] <= '9' or key[0] == '-')) {
+                    if (std.fmt.parseInt(i64, key, 10)) |idx| {
+                        return arrayGet(arr, idx);
+                    } else |_| {}
                 }
-                // Try numeric index
-                return arrayGet(arr, std.fmt.parseInt(i64, key, 10) catch return null);
+                // Special properties for arrays (less common)
+                if (key.len == 4 and std.mem.eql(u8, key, "size")) {
+                    return Self.initInt(@intCast(arr.len));
+                } else if (key.len == 5 and std.mem.eql(u8, key, "first")) {
+                    return if (arr.len > 0) arr[0] else null;
+                } else if (key.len == 4 and std.mem.eql(u8, key, "last")) {
+                    return if (arr.len > 0) arr[arr.len - 1] else null;
+                }
+                return null;
             },
             .string => |s| {
                 // Special properties for strings
@@ -635,6 +641,112 @@ pub const Value = union(enum) {
         };
         defer parsed.deinit();
         return fromJson(allocator, parsed.value);
+    }
+
+    /// Check if value is nil
+    pub fn isNil(self: Self) bool {
+        return self == .nil;
+    }
+
+    /// Convert value to integer if possible
+    pub fn toInt(self: Self) ?i64 {
+        return switch (self) {
+            .integer => |i| i,
+            .float => |f| @intFromFloat(f),
+            .string => |s| std.fmt.parseInt(i64, s, 10) catch null,
+            else => null,
+        };
+    }
+
+    /// Convert value to float if possible
+    pub fn toFloat(self: Self) ?f64 {
+        return switch (self) {
+            .float => |f| f,
+            .integer => |i| @floatFromInt(i),
+            .string => |s| std.fmt.parseFloat(f64, s) catch null,
+            else => null,
+        };
+    }
+
+    /// Get string representation (for filter string arguments)
+    pub fn toDisplayString(self: Self, allocator: Allocator) ![]const u8 {
+        return self.toString(allocator);
+    }
+
+    /// Convert value to JSON string
+    pub fn toJsonString(self: Self, allocator: Allocator) ![]const u8 {
+        var result: std.ArrayList(u8) = .empty;
+        try self.writeJson(allocator, &result);
+        return result.toOwnedSlice(allocator);
+    }
+
+    fn writeJson(self: Self, allocator: Allocator, result: *std.ArrayList(u8)) !void {
+        switch (self) {
+            .nil => try result.appendSlice(allocator, "null"),
+            .boolean => |b| try result.appendSlice(allocator, if (b) "true" else "false"),
+            .integer => |i| {
+                const s = try std.fmt.allocPrint(allocator, "{d}", .{i});
+                defer allocator.free(s);
+                try result.appendSlice(allocator, s);
+            },
+            .float => |f| {
+                const s = try std.fmt.allocPrint(allocator, "{d}", .{f});
+                defer allocator.free(s);
+                try result.appendSlice(allocator, s);
+            },
+            .string => |s| {
+                try result.append(allocator, '"');
+                for (s) |c| {
+                    switch (c) {
+                        '"' => try result.appendSlice(allocator, "\\\""),
+                        '\\' => try result.appendSlice(allocator, "\\\\"),
+                        '\n' => try result.appendSlice(allocator, "\\n"),
+                        '\r' => try result.appendSlice(allocator, "\\r"),
+                        '\t' => try result.appendSlice(allocator, "\\t"),
+                        else => try result.append(allocator, c),
+                    }
+                }
+                try result.append(allocator, '"');
+            },
+            .array => |arr| {
+                try result.append(allocator, '[');
+                for (arr, 0..) |item, i| {
+                    if (i > 0) try result.append(allocator, ',');
+                    try item.writeJson(allocator, result);
+                }
+                try result.append(allocator, ']');
+            },
+            .object => |obj| {
+                try result.append(allocator, '{');
+                var first = true;
+                var iter = obj.map.iterator();
+                while (iter.next()) |entry| {
+                    if (!first) try result.append(allocator, ',');
+                    first = false;
+                    try result.append(allocator, '"');
+                    try result.appendSlice(allocator, entry.key_ptr.*);
+                    try result.appendSlice(allocator, "\":");
+                    try entry.value_ptr.writeJson(allocator, result);
+                }
+                try result.append(allocator, '}');
+            },
+            .empty, .blank => try result.appendSlice(allocator, "null"),
+            .range => |r| {
+                const s = try std.fmt.allocPrint(allocator, "[{d},{d}]", .{ r.start, r.end });
+                defer allocator.free(s);
+                try result.appendSlice(allocator, s);
+            },
+            .liquid_error => |e| {
+                try result.append(allocator, '"');
+                try result.appendSlice(allocator, e);
+                try result.append(allocator, '"');
+            },
+            .boolean_drop => |bd| {
+                try result.append(allocator, '"');
+                try result.appendSlice(allocator, bd.display);
+                try result.append(allocator, '"');
+            },
+        }
     }
 };
 

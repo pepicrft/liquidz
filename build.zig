@@ -58,6 +58,25 @@ pub fn build(b: *std.Build) void {
         run_step.dependOn(&run_cmd.step);
     }
 
+    // Benchmark executable (skip for WASM)
+    if (target.result.os.tag != .freestanding) {
+        const bench_exe = b.addExecutable(.{
+            .name = "bench",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("benchmark/bench.zig"),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{
+                    .{ .name = "liquidz", .module = liquidz_mod },
+                },
+            }),
+        });
+        b.installArtifact(bench_exe);
+
+        const bench_step = b.step("bench", "Build benchmark tool");
+        bench_step.dependOn(&b.addInstallArtifact(bench_exe, .{}).step);
+    }
+
     // Unit tests for lib
     const lib_unit_tests = b.addTest(.{
         .root_module = b.createModule(.{
