@@ -247,46 +247,79 @@ pub const Value = union(enum) {
                     }
                 }
 
-                // Try to find the shortest representation that round-trips correctly
-                // This mimics Ruby's float formatting behavior
-                const precisions = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
-                for (precisions) |precision| {
-                    const multiplier = std.math.pow(f64, 10.0, @floatFromInt(precision));
-                    const rounded = @round(f * multiplier) / multiplier;
+                // Format with high precision first
+                const formatted = try std.fmt.allocPrint(allocator, "{d:.15}", .{f});
 
-                    // Check if this precision round-trips correctly
-                    if (rounded == f) {
-                        // Check if it's actually a whole number
-                        if (@round(rounded) == rounded and @abs(rounded) < 1e15) {
+                // Find the decimal point
+                if (std.mem.indexOfScalar(u8, formatted, '.')) |dot_pos| {
+                    // Check for floating point artifacts: long strings of 9s or 0s
+                    // e.g., "7.249999999999999" should become "7.25"
+                    // e.g., "12.000000000000000" should become "12.0"
+                    // Look for patterns like "99999" or "00000" (5+ repeated digits) at the end
+                    var nine_count: usize = 0;
+                    var zero_count: usize = 0;
+                    var pattern_break_pos: usize = formatted.len;
+
+                    var i: usize = formatted.len;
+                    while (i > dot_pos + 1) {
+                        i -= 1;
+                        if (formatted[i] == '9') {
+                            nine_count += 1;
+                            zero_count = 0;
+                        } else if (formatted[i] == '0') {
+                            zero_count += 1;
+                            nine_count = 0;
+                        } else {
+                            if (nine_count >= 5 or zero_count >= 5) {
+                                // Found a pattern ending at position i+1, round at position i
+                                const precision = i - dot_pos;
+                                const multiplier = std.math.pow(f64, 10.0, @floatFromInt(precision));
+                                const rounded = @round(f * multiplier) / multiplier;
+
+                                // Check if it's a whole number
+                                if (@round(rounded) == rounded and @abs(rounded) < 1e15) {
+                                    const int_val: i64 = @intFromFloat(rounded);
+                                    allocator.free(formatted);
+                                    break :blk try std.fmt.allocPrint(allocator, "{d}.0", .{int_val});
+                                }
+
+                                // Format the rounded value and trim trailing zeros
+                                allocator.free(formatted);
+                                const rounded_fmt = try std.fmt.allocPrint(allocator, "{d:.15}", .{rounded});
+
+                                if (std.mem.indexOfScalar(u8, rounded_fmt, '.')) |rdot| {
+                                    var rend = rounded_fmt.len;
+                                    while (rend > rdot + 2 and rounded_fmt[rend - 1] == '0') {
+                                        rend -= 1;
+                                    }
+                                    if (rend != rounded_fmt.len) {
+                                        const trimmed = try allocator.alloc(u8, rend);
+                                        @memcpy(trimmed, rounded_fmt[0..rend]);
+                                        allocator.free(rounded_fmt);
+                                        break :blk trimmed;
+                                    }
+                                }
+                                break :blk rounded_fmt;
+                            }
+                            pattern_break_pos = i;
+                            nine_count = 0;
+                            zero_count = 0;
+                        }
+                    }
+
+                    // Check if entire decimal part is 9s or 0s
+                    if (nine_count >= 5 or zero_count >= 5) {
+                        const rounded = @round(f);
+                        if (@abs(rounded) < 1e15) {
                             const int_val: i64 = @intFromFloat(rounded);
+                            allocator.free(formatted);
                             break :blk try std.fmt.allocPrint(allocator, "{d}.0", .{int_val});
                         }
-
-                        // Format with this precision
-                        const formatted = try std.fmt.allocPrint(allocator, "{d:.15}", .{rounded});
-
-                        // Trim trailing zeros after decimal point
-                        if (std.mem.indexOfScalar(u8, formatted, '.')) |dot_pos| {
-                            var end = formatted.len;
-                            while (end > dot_pos + 1 and formatted[end - 1] == '0') {
-                                end -= 1;
-                            }
-                            if (end != formatted.len) {
-                                const trimmed = try allocator.alloc(u8, end);
-                                @memcpy(trimmed, formatted[0..end]);
-                                allocator.free(formatted);
-                                break :blk trimmed;
-                            }
-                        }
-                        break :blk formatted;
                     }
-                }
 
-                // Fallback: use full precision
-                const formatted = try std.fmt.allocPrint(allocator, "{d:.15}", .{f});
-                if (std.mem.indexOfScalar(u8, formatted, '.')) |dot_pos| {
+                    // No pattern found, just trim trailing zeros (keep at least one after decimal)
                     var end = formatted.len;
-                    while (end > dot_pos + 1 and formatted[end - 1] == '0') {
+                    while (end > dot_pos + 2 and formatted[end - 1] == '0') {
                         end -= 1;
                     }
                     if (end != formatted.len) {
