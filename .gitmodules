@@ -1,3 +1,6 @@
 [submodule "test/golden-liquid"]
 	path = test/golden-liquid
 	url = https://github.com/jg-rp/golden-liquid.git
+[submodule "test/liquid-spec"]
+	path = test/liquid-spec
+	url = https://github.com/Shopify/liquid-spec.git
