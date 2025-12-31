@@ -44,7 +44,6 @@ jobs:
   golden-tests:
     name: Golden Liquid Tests
     runs-on: ubuntu-latest
-    needs: build
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,7 +64,6 @@ jobs:
   liquid-spec-tests:
     name: Liquid Spec Tests
     runs-on: ubuntu-latest
-    needs: build
     steps:
       - uses: actions/checkout@v4
         with:
