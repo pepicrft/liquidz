@@ -1,4 +1,14 @@
 
+## [0.2.0] - 2025-12-31
+
+### Feat
+
+- Add comprehensive benchmark template and README documentation ([fd9f1f7](https://github.com/pepicrft/liquidz/commit/fd9f1f71accb964be76d478c2e05aa4a6c8e9cd8))
+- Add benchmarking suite with Dawn theme ([d721f09](https://github.com/pepicrft/liquidz/commit/d721f093d89fb8e0661c6cdcbf50e7c10680b6a8))
+
+### Fix
+
+- Restore correct variable resolution order and blank comparison ([022d8dc](https://github.com/pepicrft/liquidz/commit/022d8dcef5836f20ef76bad23e2ec242f0fee3ed))
 ## [0.1.2] - 2025-12-31
 
 ### Refactor
@@ -47,6 +57,7 @@
 ### Refactor
 
 - Clean up, add filters module, documentation, and CI ([4bff5e2](https://github.com/pepicrft/liquidz/commit/4bff5e22eca7d553f4de115bcb3c93317d3c6a4a))
+[0.2.0]: https://github.com/pepicrft/liquidz/compare/0.1.2..0.2.0
 [0.1.2]: https://github.com/pepicrft/liquidz/compare/0.1.1..0.1.2
 [0.1.1]: https://github.com/pepicrft/liquidz/compare/0.1.0..0.1.1
 
