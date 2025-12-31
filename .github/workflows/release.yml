@@ -1,0 +1,201 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to release"
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  check-release:
+    name: Check for releasable changes
+    runs-on: ubuntu-latest
+    if: "!startsWith(github.event.head_commit.message, '[Release]')"
+    outputs:
+      should-release: ${{ steps.is-releasable.outputs.should-release }}
+      next-version: ${{ steps.next-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: jdx/mise-action@v2
+
+      - name: Check if there are releasable changes
+        id: is-releasable
+        run: |
+          # Check if there are any tags
+          if ! git describe --tags --abbrev=0 2>/dev/null; then
+            echo "No tags found, this will be the first release"
+            echo "should-release=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          bumped_output=$(git cliff --bump --unreleased 2>/dev/null || echo "")
+          if [ -z "$bumped_output" ]; then
+            echo "No releasable changes found"
+            echo "should-release=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Check if CHANGELOG.md exists
+          if [ ! -f CHANGELOG.md ]; then
+            echo "should-release=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          changelog_content=$(cat CHANGELOG.md)
+          bumped_hash=$(echo -n "$bumped_output" | shasum -a 256 | awk '{print $1}')
+          changelog_hash=$(echo -n "$changelog_content" | shasum -a 256 | awk '{print $1}')
+
+          if [ "$bumped_hash" != "$changelog_hash" ]; then
+            echo "should-release=true" >> $GITHUB_OUTPUT
+          else
+            echo "should-release=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get next version
+        id: next-version
+        if: steps.is-releasable.outputs.should-release == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "version=$(git cliff --bumped-version)" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.target }})
+    needs: check-release
+    if: needs.check-release.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-linux
+            artifact: liquidz-linux-x86_64
+          - target: aarch64-linux
+            artifact: liquidz-linux-aarch64
+          - target: x86_64-macos
+            artifact: liquidz-macos-x86_64
+          - target: aarch64-macos
+            artifact: liquidz-macos-aarch64
+          - target: x86_64-windows
+            artifact: liquidz-windows-x86_64
+          - target: aarch64-windows
+            artifact: liquidz-windows-aarch64
+          - target: wasm32-wasi
+            artifact: liquidz-wasm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Build release binary
+        run: zig build -Doptimize=ReleaseFast -Dtarget=${{ matrix.target }}
+
+      - name: Package artifacts
+        run: |
+          mkdir -p dist/${{ matrix.artifact }}
+
+          # Copy binary (handle Windows .exe extension)
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            cp zig-out/bin/liquidz.exe dist/${{ matrix.artifact }}/ 2>/dev/null || true
+          elif [[ "${{ matrix.target }}" == "wasm32-wasi" ]]; then
+            cp zig-out/bin/liquidz.wasm dist/${{ matrix.artifact }}/ 2>/dev/null || true
+            cp zig-out/lib/*.wasm dist/${{ matrix.artifact }}/ 2>/dev/null || true
+          else
+            cp zig-out/bin/liquidz dist/${{ matrix.artifact }}/ 2>/dev/null || true
+          fi
+
+          # Copy libraries if they exist
+          cp zig-out/lib/*.a dist/${{ matrix.artifact }}/ 2>/dev/null || true
+          cp zig-out/lib/*.so dist/${{ matrix.artifact }}/ 2>/dev/null || true
+          cp zig-out/lib/*.dylib dist/${{ matrix.artifact }}/ 2>/dev/null || true
+          cp zig-out/lib/*.dll dist/${{ matrix.artifact }}/ 2>/dev/null || true
+
+          # Copy C headers if they exist
+          cp -r zig-out/include dist/${{ matrix.artifact }}/ 2>/dev/null || true
+
+          # Create tarball (or zip for Windows)
+          cd dist
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            zip -r ${{ matrix.artifact }}.zip ${{ matrix.artifact }}
+          else
+            tar -czvf ${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/${{ matrix.artifact }}.tar.gz
+            dist/${{ matrix.artifact }}.zip
+          if-no-files-found: ignore
+
+  release:
+    name: Create Release
+    needs: [check-release, build]
+    if: needs.check-release.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: jdx/mise-action@v2
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec cp {} release/ \;
+
+          # Generate checksums
+          cd release
+          sha256sum * > sha256.txt
+          sha512sum * > sha512.txt
+
+      - name: Update CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: git cliff --bump -o CHANGELOG.md
+
+      - name: Commit changes
+        id: auto-commit
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_options: "--allow-empty"
+          tagging_message: ${{ needs.check-release.outputs.next-version }}
+          skip_dirty_check: true
+          commit_message: "[Release] liquidz ${{ needs.check-release.outputs.next-version }}"
+
+      - name: Get release notes
+        id: release-notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "RELEASE_NOTES<<EOF" >> "$GITHUB_OUTPUT"
+          git cliff --latest >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          name: ${{ needs.check-release.outputs.next-version }}
+          tag_name: ${{ needs.check-release.outputs.next-version }}
+          body: ${{ steps.release-notes.outputs.RELEASE_NOTES }}
+          target_commitish: ${{ steps.auto-commit.outputs.commit_hash }}
+          files: |
+            release/*
