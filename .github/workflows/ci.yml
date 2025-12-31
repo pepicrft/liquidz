@@ -21,18 +21,24 @@ jobs:
           zig build test
 
   build:
-    name: Build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.target }})
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        target:
+          - x86_64-linux
+          - aarch64-linux
+          - x86_64-macos
+          - aarch64-macos
+          - x86_64-windows
+          - aarch64-windows
     steps:
       - uses: actions/checkout@v4
 
       - uses: jdx/mise-action@v2
 
       - name: Build Release
-        run: zig build -Doptimize=ReleaseFast
+        run: zig build -Doptimize=ReleaseFast -Dtarget=${{ matrix.target }}
 
   golden-tests:
     name: Golden Liquid Tests
