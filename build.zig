@@ -1,17 +1,7 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-     const target = b.standardTargetOptions(.{
-         .whitelist = &.{
-             .{ .cpu_arch = .x86_64, .os_tag = .linux },
-             .{ .cpu_arch = .aarch64, .os_tag = .linux },
-             .{ .cpu_arch = .riscv64, .os_tag = .linux },
-             .{ .cpu_arch = .x86_64, .os_tag = .macos },
-             .{ .cpu_arch = .aarch64, .os_tag = .macos },
-             .{ .cpu_arch = .x86_64, .os_tag = .windows },
-             .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
-         },
-     });
+     const target = b.standardTargetOptions(.{});
      const optimize = b.standardOptimizeOption(.{});
 
     // Create the liquidz module
