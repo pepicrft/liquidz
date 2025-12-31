@@ -32,6 +32,7 @@ jobs:
           - aarch64-macos
           - x86_64-windows
           - aarch64-windows
+          - wasm32-wasi
     steps:
       - uses: actions/checkout@v4
 
@@ -81,19 +82,6 @@ jobs:
         run: |
           cd ${{ github.workspace }}/test
           ruby run_liquid_spec_tests.rb
-
-  wasm-build:
-    name: WebAssembly Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: jdx/mise-action@v2
-
-      - name: Build WASM
-        run: |
-          cd ${{ github.workspace }}
-          zig build wasm
 
   code-quality:
     name: Code Quality
