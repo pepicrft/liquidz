@@ -247,21 +247,43 @@ pub const Value = union(enum) {
                     }
                 }
 
-                // Round to 10 decimal places to avoid floating point precision issues
-                // This matches Ruby's behavior better for normal values
-                const rounded = @round(f * 1e10) / 1e10;
-                const abs_rounded = @abs(rounded);
+                // Try to find the shortest representation that round-trips correctly
+                // This mimics Ruby's float formatting behavior
+                const precisions = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
+                for (precisions) |precision| {
+                    const multiplier = std.math.pow(f64, 10.0, @floatFromInt(precision));
+                    const rounded = @round(f * multiplier) / multiplier;
 
-                // Check if it's actually a whole number after rounding
-                if (@round(rounded) == rounded and abs_rounded < 1e15) {
-                    const int_val: i64 = @intFromFloat(rounded);
-                    break :blk try std.fmt.allocPrint(allocator, "{d}.0", .{int_val});
+                    // Check if this precision round-trips correctly
+                    if (rounded == f) {
+                        // Check if it's actually a whole number
+                        if (@round(rounded) == rounded and @abs(rounded) < 1e15) {
+                            const int_val: i64 = @intFromFloat(rounded);
+                            break :blk try std.fmt.allocPrint(allocator, "{d}.0", .{int_val});
+                        }
+
+                        // Format with this precision
+                        const formatted = try std.fmt.allocPrint(allocator, "{d:.15}", .{rounded});
+
+                        // Trim trailing zeros after decimal point
+                        if (std.mem.indexOfScalar(u8, formatted, '.')) |dot_pos| {
+                            var end = formatted.len;
+                            while (end > dot_pos + 1 and formatted[end - 1] == '0') {
+                                end -= 1;
+                            }
+                            if (end != formatted.len) {
+                                const trimmed = try allocator.alloc(u8, end);
+                                @memcpy(trimmed, formatted[0..end]);
+                                allocator.free(formatted);
+                                break :blk trimmed;
+                            }
+                        }
+                        break :blk formatted;
+                    }
                 }
 
-                // Format with precision sufficient for 10 decimal places
-                const formatted = try std.fmt.allocPrint(allocator, "{d:.10}", .{rounded});
-
-                // Trim trailing zeros after decimal point
+                // Fallback: use full precision
+                const formatted = try std.fmt.allocPrint(allocator, "{d:.15}", .{f});
                 if (std.mem.indexOfScalar(u8, formatted, '.')) |dot_pos| {
                     var end = formatted.len;
                     while (end > dot_pos + 1 and formatted[end - 1] == '0') {
