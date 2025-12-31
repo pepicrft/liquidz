@@ -1,53 +1,53 @@
-# Changelog
 
-All notable changes to this project will be documented in this file.
+## [0.1.2] - 2025-12-31
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+### Refactor
 
+- Separate release artifacts into executables, libraries, and WASM ([af5b112](https://github.com/pepicrft/liquidz/commit/af5b1126efe5973ea29117c16905a26f3f8424c6))
 ## [0.1.1] - 2025-12-31
 
-#### Fix
+### Fix
 
-- Only commit CHANGELOG.md in release workflow
-- Remove accidentally committed release artifacts and update gitignore
+- Only commit CHANGELOG.md in release workflow ([01c7fcc](https://github.com/pepicrft/liquidz/commit/01c7fcc3d7ec12e5539323ed244b5efac0266580))
+- Remove accidentally committed release artifacts and update gitignore ([ca2ba17](https://github.com/pepicrft/liquidz/commit/ca2ba1704ffe30f9bfc532d1aa97b42e1e69e4cd))
 ## [0.1.0] - 2025-12-31
 
-#### Ci
+### Ci
 
-- Remove unnecessary build dependency from test jobs
-- Remove redundant code-quality job and rename workflow file
-- Add wasm32-wasi to build matrix
-- Use Zig cross-compilation for multi-platform builds
-- Conditionally install Ruby only on Linux
-- Fix build jobs - skip Ruby install, remove Windows build
-- Simplify build matrix to native OS builds
-- Use Mise GitHub Action and remove setup job
-- Add multi-platform matrix builds and fix unused parameter warning
+- Remove unnecessary build dependency from test jobs ([5efc2b7](https://github.com/pepicrft/liquidz/commit/5efc2b759db59e3ba3c6870672d0e85b193c898a))
+- Remove redundant code-quality job and rename workflow file ([0398ce7](https://github.com/pepicrft/liquidz/commit/0398ce7fbe09d123f261c49e4f88e43cdd924b96))
+- Add wasm32-wasi to build matrix ([b71c067](https://github.com/pepicrft/liquidz/commit/b71c067a9bc425cd37534f5ceabad633d214167a))
+- Use Zig cross-compilation for multi-platform builds ([db3873d](https://github.com/pepicrft/liquidz/commit/db3873d0ae2908b30d77223921ce6d0de8e12323))
+- Conditionally install Ruby only on Linux ([09c3960](https://github.com/pepicrft/liquidz/commit/09c3960691d0be205ee2b23f356dc8cbaa2c262a))
+- Fix build jobs - skip Ruby install, remove Windows build ([eb91c83](https://github.com/pepicrft/liquidz/commit/eb91c837522403b4e44371ca9dffa861fc33c127))
+- Simplify build matrix to native OS builds ([c4bd56d](https://github.com/pepicrft/liquidz/commit/c4bd56d7363e589f8fee4bc7ff25c1cc0b63fe22))
+- Use Mise GitHub Action and remove setup job ([8b1d74c](https://github.com/pepicrft/liquidz/commit/8b1d74c058c24d94b7c8ed89051753d5fafaab55))
+- Add multi-platform matrix builds and fix unused parameter warning ([df13005](https://github.com/pepicrft/liquidz/commit/df1300528442648c37a96f416b9fdbaefe0a07e8))
 
-#### Docs
+### Docs
 
-- Make motivation more inspirational with bold titles
-- Add motivation section to README
-- Simplify README and remove unvalidated documentation
-- Add comprehensive work completion report
-- Update README with comprehensive documentation and performance metrics
+- Make motivation more inspirational with bold titles ([4e0ee44](https://github.com/pepicrft/liquidz/commit/4e0ee44dfaa60ccde9d600e66c04c280afc14305))
+- Add motivation section to README ([1b2bdd4](https://github.com/pepicrft/liquidz/commit/1b2bdd4ae40377f3ba207b918f41c9b7a2e50d3a))
+- Simplify README and remove unvalidated documentation ([df05608](https://github.com/pepicrft/liquidz/commit/df056087d65ee0852233b0a91195beb43e70636e))
+- Add comprehensive work completion report ([9fc30a6](https://github.com/pepicrft/liquidz/commit/9fc30a610827727e62b35f357d339e7efd8a3997))
+- Update README with comprehensive documentation and performance metrics ([102b5bb](https://github.com/pepicrft/liquidz/commit/102b5bb39d65db7d812b618f2f943bde680c5b77))
 
-#### Feat
+### Feat
 
-- Add automated releases with git-cliff
+- Add automated releases with git-cliff ([8887d5f](https://github.com/pepicrft/liquidz/commit/8887d5fca19db7d0c580b072a7c2adb5086f2148))
 
-#### Fix
+### Fix
 
-- Simplify cliff.toml template to avoid missing variable errors
-- Improve float formatting to handle precision artifacts
-- Use shortest float representation that round-trips correctly
-- Add missing liquid-spec submodule to .gitmodules
-- Use correct mise syntax for platform-specific tools
+- Simplify cliff.toml template to avoid missing variable errors ([5aa4e48](https://github.com/pepicrft/liquidz/commit/5aa4e4816fc0be22e70e65d456ac6a717f8ba801))
+- Improve float formatting to handle precision artifacts ([bef5e6a](https://github.com/pepicrft/liquidz/commit/bef5e6ad98dc2cca7af67593e45f2f7d8111e9da))
+- Use shortest float representation that round-trips correctly ([bf9f8f8](https://github.com/pepicrft/liquidz/commit/bf9f8f8793eff86e02d180da211c21e916584ddd))
+- Add missing liquid-spec submodule to .gitmodules ([34d91c8](https://github.com/pepicrft/liquidz/commit/34d91c8df3a28a51ffc60c4eb13d13f2d68b7247))
+- Use correct mise syntax for platform-specific tools ([3b92ccb](https://github.com/pepicrft/liquidz/commit/3b92ccb85e979620f5b0e968dafc0cf3dbed374d))
 
-#### Refactor
+### Refactor
 
-- Clean up, add filters module, documentation, and CI
+- Clean up, add filters module, documentation, and CI ([4bff5e2](https://github.com/pepicrft/liquidz/commit/4bff5e22eca7d553f4de115bcb3c93317d3c6a4a))
+[0.1.2]: https://github.com/pepicrft/liquidz/compare/0.1.1..0.1.2
 [0.1.1]: https://github.com/pepicrft/liquidz/compare/0.1.0..0.1.1
 
 <!-- generated by git-cliff -->
