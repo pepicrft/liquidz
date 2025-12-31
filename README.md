@@ -2,6 +2,12 @@
 
 A [Liquid](https://shopify.github.io/liquid/) template engine written in Zig.
 
+## Why
+
+- 💎 Shopify maintains Liquid only in Ruby since they can assume a Ruby runtime on their servers and developers' machines
+- 🎯 A systems language like Zig lets us target many platforms, both as a standalone binary and as a library that other runtimes can include via foreign function interfaces
+- 🔧 Instead of maintaining separate Liquid parsers for each platform or language, we maintain one implementation and build the necessary bindings
+
 ## Usage
 
 ```bash
