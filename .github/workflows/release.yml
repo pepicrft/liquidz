@@ -635,12 +635,13 @@ jobs:
       # -------------------------------------------------------------------------
       - name: Prepare Ruby gems
         run: |
-          cd bindings/ruby
+          RUBY_DIR="$(pwd)/bindings/ruby"
+          ARTIFACTS_DIR="$(pwd)/artifacts"
           NEW_VERSION="${{ needs.check-release.outputs.next-version }}"
-          mkdir -p pkg
+          mkdir -p "$RUBY_DIR/pkg"
 
           # Process each platform's gem artifact - just copy with version update
-          for gem_dir in ../../artifacts/ruby-gem-*; do
+          for gem_dir in "$ARTIFACTS_DIR"/ruby-gem-*; do
             if [ -d "$gem_dir" ]; then
               for gem in "$gem_dir"/*.gem; do
                 if [ -f "$gem" ]; then
@@ -656,7 +657,7 @@ jobs:
 
                   # Unpack, update spec, repack
                   rm -rf /tmp/gem-repack
-                  mkdir -p /tmp/gem-repack/unpacked
+                  mkdir -p /tmp/gem-repack
 
                   # Unpack the gem (it's a tar with data.tar.gz and metadata.gz)
                   cd /tmp/gem-repack
@@ -671,16 +672,15 @@ jobs:
                   tar cf "${NEW_NAME}" data.tar.gz metadata.gz checksums.yaml.gz 2>/dev/null || \
                   tar cf "${NEW_NAME}" data.tar.gz metadata.gz
 
-                  cp "${NEW_NAME}" /home/runner/work/liquidz/liquidz/bindings/ruby/pkg/
-                  cd /home/runner/work/liquidz/liquidz/bindings/ruby
-                  echo "Created: pkg/${NEW_NAME}"
+                  cp "${NEW_NAME}" "$RUBY_DIR/pkg/"
+                  echo "Created: $RUBY_DIR/pkg/${NEW_NAME}"
                 fi
               done
             fi
           done
 
           echo "Ruby pkg contents:"
-          ls -la pkg/
+          ls -la "$RUBY_DIR/pkg/"
 
       # -------------------------------------------------------------------------
       # Prepare Elixir package
