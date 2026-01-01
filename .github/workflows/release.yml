@@ -683,7 +683,7 @@ jobs:
       # Publish to RubyGems (using Trusted Publishing / OIDC)
       # -------------------------------------------------------------------------
       - name: Configure RubyGems credentials
-        uses: rubygems/configure-rubygems-credentials@v1
+        uses: rubygems/configure-rubygems-credentials@v1.0.0
 
       - name: Publish to RubyGems
         working-directory: bindings/ruby
