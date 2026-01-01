@@ -456,6 +456,9 @@ jobs:
       - build-wasm
     if: needs.check-release.outputs.should-release == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write  # Required for OIDC publishing to npm and PyPI
     steps:
       - uses: actions/checkout@v4
         with:
