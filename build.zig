@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) void {
         exe = exe_val;
     }
 
-    // C ABI static library for Ruby/FFI integration (skip for WASM)
+    // C ABI static library for Ruby/Node.js/Elixir integration (skip for WASM)
     if (target.result.os.tag != .freestanding) {
         const ffi_lib = b.addLibrary(.{
             .name = "liquidz_ffi",
@@ -45,6 +45,24 @@ pub fn build(b: *std.Build) void {
         });
         ffi_lib.linkLibC();
         b.installArtifact(ffi_lib);
+    }
+
+    // C ABI dynamic/shared library for Python/Deno FFI integration (skip for WASM)
+    if (target.result.os.tag != .freestanding) {
+        const ffi_shared_lib = b.addLibrary(.{
+            .name = "liquidz_ffi",
+            .linkage = .dynamic,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/ffi.zig"),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{
+                    .{ .name = "liquidz", .module = liquidz_mod },
+                },
+            }),
+        });
+        ffi_shared_lib.linkLibC();
+        b.installArtifact(ffi_shared_lib);
     }
 
     // Run step

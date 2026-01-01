@@ -17,6 +17,28 @@ Gemfile.lock
 *.so
 *.dylib
 
+# Node.js
+node_modules/
+build/
+*.node
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+*.egg
+.pytest_cache/
+venv/
+.venv/
+
+# Elixir
+_build/
+deps/
+*.ez
+erl_crash.dump
+
 # IDE
 .idea/
 .vscode/

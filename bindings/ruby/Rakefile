@@ -1,0 +1,7 @@
+require "rake/extensiontask"
+
+Rake::ExtensionTask.new("liquidz_ext") do |ext|
+  ext.lib_dir = "lib/liquidz_ext"
+end
+
+task default: :compile

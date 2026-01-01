@@ -1,4 +1,7 @@
 [tools]
 zig = "0.15.1"
-ruby = { version = "3.3", os = ["linux"] }
+ruby = "3.4"
+python = "3.13"
+node = "22"
+elixir = "1.18"
 "git-cliff" = "2.7.0"

@@ -80,3 +80,75 @@ jobs:
         run: |
           cd ${{ github.workspace }}/test
           ruby run_liquid_spec_tests.rb
+
+  binding-nodejs:
+    name: Node.js Binding
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Build Zig Library
+        run: zig build -Doptimize=ReleaseFast
+
+      - name: Install and Test
+        working-directory: bindings/nodejs
+        run: |
+          npm install
+          npm test
+
+  binding-python:
+    name: Python Binding
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Build Zig Library
+        run: zig build -Doptimize=ReleaseFast
+
+      - name: Install and Test
+        working-directory: bindings/python
+        run: |
+          pip install -e .
+          pip install pytest
+          pytest -v
+
+  binding-ruby:
+    name: Ruby Binding
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Build Zig Library
+        run: zig build -Doptimize=ReleaseFast
+
+      - name: Install and Test
+        working-directory: bindings/ruby
+        run: |
+          bundle install
+          bundle exec rake compile
+          bundle exec ruby -I lib test/test_liquidz.rb
+
+  binding-elixir:
+    name: Elixir Binding
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Build Zig Library
+        run: zig build -Doptimize=ReleaseFast
+
+      - name: Install and Test
+        working-directory: bindings/elixir
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix test
