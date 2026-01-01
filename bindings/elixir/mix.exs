@@ -1,7 +1,7 @@
 defmodule Liquidz.MixProject do
   use Mix.Project
 
-  @version "0.2.10"
+  @version "0.3.0"
   @source_url "https://github.com/pepicrft/liquidz"
 
   def project do
