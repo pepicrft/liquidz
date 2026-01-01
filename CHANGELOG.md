@@ -1,4 +1,12 @@
 
+## [0.2.6] - 2026-01-01
+
+### Fix
+
+- Add fallback for RubyGems publishing when OIDC not configured ([dd76acd](https://github.com/pepicrft/liquidz/commit/dd76acdde59fd5bafb54a19aca26fe0f3ccd7338))
+- Use absolute paths for Python wheel repacking ([686f8f6](https://github.com/pepicrft/liquidz/commit/686f8f6c120ec48fb19614ddc2e115a525e9b07a))
+- Use correct version for rubygems/configure-rubygems-credentials action ([7cc9397](https://github.com/pepicrft/liquidz/commit/7cc9397898e18aa4535c01e838eecc2cd9b6c833))
+- Build platform-specific Python wheels and use RubyGems Trusted Publishing ([5ff783c](https://github.com/pepicrft/liquidz/commit/5ff783c7c12af3cfee36d4311ca253e8d0e2319d))
 ## [0.2.5] - 2026-01-01
 
 ### Fix
@@ -87,6 +95,7 @@
 ### Refactor
 
 - Clean up, add filters module, documentation, and CI ([4bff5e2](https://github.com/pepicrft/liquidz/commit/4bff5e22eca7d553f4de115bcb3c93317d3c6a4a))
+[0.2.6]: https://github.com/pepicrft/liquidz/compare/0.2.5..0.2.6
 [0.2.5]: https://github.com/pepicrft/liquidz/compare/0.2.4..0.2.5
 [0.2.4]: https://github.com/pepicrft/liquidz/compare/0.2.3..0.2.4
 [0.2.3]: https://github.com/pepicrft/liquidz/compare/0.2.2..0.2.3
