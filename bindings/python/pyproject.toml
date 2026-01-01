@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "liquidz"
-version = "0.2.1"
+version = "0.2.2"
 description = "High-performance Liquid template engine powered by Zig"
 readme = "README.md"
 license = {text = "MIT"}

@@ -1,4 +1,9 @@
 
+## [0.2.2] - 2026-01-01
+
+### Fix
+
+- Use OIDC for PyPI publishing ([82cc08a](https://github.com/pepicrft/liquidz/commit/82cc08ae7c58c085a17a8ab7bcda214d3bfca582))
 ## [0.2.1] - 2026-01-01
 
 ### Fix
@@ -66,6 +71,7 @@
 ### Refactor
 
 - Clean up, add filters module, documentation, and CI ([4bff5e2](https://github.com/pepicrft/liquidz/commit/4bff5e22eca7d553f4de115bcb3c93317d3c6a4a))
+[0.2.2]: https://github.com/pepicrft/liquidz/compare/0.2.1..0.2.2
 [0.2.1]: https://github.com/pepicrft/liquidz/compare/0.2.0..0.2.1
 [0.2.0]: https://github.com/pepicrft/liquidz/compare/0.1.2..0.2.0
 [0.1.2]: https://github.com/pepicrft/liquidz/compare/0.1.1..0.1.2

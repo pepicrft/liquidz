@@ -2,7 +2,7 @@
 
 Gem::Specification.new do |spec|
   spec.name          = "liquidz"
-  spec.version       = "0.2.1"
+  spec.version       = "0.2.2"
   spec.authors       = ["Pedro Pinera Buendia"]
   spec.email         = ["pedro@ppinera.es"]
 
