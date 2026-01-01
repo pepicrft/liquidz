@@ -194,12 +194,10 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-linux
-          - os: macos-13
+          - os: macos-14
             target: x86_64-macos
           - os: macos-latest
             target: aarch64-macos
-          - os: windows-latest
-            target: x86_64-windows
     steps:
       - uses: actions/checkout@v4
 
@@ -241,12 +239,10 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-linux
-          - os: macos-13
+          - os: macos-14
             target: x86_64-macos
           - os: macos-latest
             target: aarch64-macos
-          - os: windows-latest
-            target: x86_64-windows
     steps:
       - uses: actions/checkout@v4
 
@@ -268,9 +264,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p liquidz/lib
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            cp ../../zig-out/lib/liquidz_ffi.dll liquidz/lib/ 2>/dev/null || true
-          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
             cp ../../zig-out/lib/libliquidz_ffi.dylib liquidz/lib/
           else
             cp ../../zig-out/lib/libliquidz_ffi.so liquidz/lib/
@@ -300,7 +294,7 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-linux
             platform: x86_64-linux
-          - os: macos-13
+          - os: macos-14
             target: x86_64-macos
             platform: x86_64-darwin
           - os: macos-latest
@@ -353,7 +347,7 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-linux
             nif_target: x86_64-linux-gnu
-          - os: macos-13
+          - os: macos-14
             target: x86_64-macos
             nif_target: x86_64-apple-darwin
           - os: macos-latest
