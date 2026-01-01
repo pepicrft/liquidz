@@ -1,4 +1,11 @@
-const native = require('./build/Release/liquidz.node');
+let native;
+try {
+  // Try to load prebuilt binary first
+  native = require('node-gyp-build')(__dirname);
+} catch (e) {
+  // Fall back to locally compiled binary
+  native = require('./build/Release/liquidz.node');
+}
 
 /**
  * Render a Liquid template with the given data.
