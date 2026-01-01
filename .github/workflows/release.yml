@@ -631,7 +631,7 @@ jobs:
           ls -la dist/
 
       # -------------------------------------------------------------------------
-      # Prepare Ruby gems - collect all platform-specific gems and update versions
+      # Prepare Ruby gems - update versions in platform-specific gems
       # -------------------------------------------------------------------------
       - name: Prepare Ruby gems
         run: |
@@ -639,34 +639,41 @@ jobs:
           NEW_VERSION="${{ needs.check-release.outputs.next-version }}"
           mkdir -p pkg
 
-          # Update version in local gemspec first
-          sed -i "s/spec.version.*=.*/spec.version       = \"$NEW_VERSION\"/" liquidz.gemspec
-
-          # Process each platform's gem artifact
+          # Process each platform's gem artifact - just copy with version update
           for gem_dir in ../../artifacts/ruby-gem-*; do
             if [ -d "$gem_dir" ]; then
               for gem in "$gem_dir"/*.gem; do
                 if [ -f "$gem" ]; then
                   echo "Processing gem: $gem"
 
-                  # Unpack the gem contents (not the gemspec)
+                  # Get original gem name and extract platform
+                  ORIG_NAME=$(basename "$gem")
+                  # Extract platform from gem name (e.g., liquidz-0.2.6-arm64-darwin-23.gem -> arm64-darwin-23)
+                  PLATFORM=$(echo "$ORIG_NAME" | sed -E 's/liquidz-[0-9]+\.[0-9]+\.[0-9]+-(.+)\.gem/\1/')
+
+                  # New gem name with updated version
+                  NEW_NAME="liquidz-${NEW_VERSION}-${PLATFORM}.gem"
+
+                  # Unpack, update spec, repack
                   rm -rf /tmp/gem-repack
-                  mkdir -p /tmp/gem-repack
-                  gem unpack "$gem" --target=/tmp/gem-repack
+                  mkdir -p /tmp/gem-repack/unpacked
 
-                  # Find the unpacked gem directory
-                  UNPACKED_DIR=$(find /tmp/gem-repack -mindepth 1 -maxdepth 1 -type d | head -1)
+                  # Unpack the gem (it's a tar with data.tar.gz and metadata.gz)
+                  cd /tmp/gem-repack
+                  tar xf "$gem"
 
-                  if [ -d "$UNPACKED_DIR" ]; then
-                    # Copy our updated gemspec to the unpacked directory
-                    cp liquidz.gemspec "$UNPACKED_DIR/"
+                  # Extract and update metadata
+                  gunzip -c metadata.gz > metadata.yaml
+                  sed -i "s/version: .*/version: ${NEW_VERSION}/" metadata.yaml
+                  gzip -c metadata.yaml > metadata.gz
 
-                    # Build gem with new version
-                    cd "$UNPACKED_DIR"
-                    gem build liquidz.gemspec
-                    cp *.gem /home/runner/work/liquidz/liquidz/bindings/ruby/pkg/
-                    cd /home/runner/work/liquidz/liquidz/bindings/ruby
-                  fi
+                  # Repack the gem
+                  tar cf "${NEW_NAME}" data.tar.gz metadata.gz checksums.yaml.gz 2>/dev/null || \
+                  tar cf "${NEW_NAME}" data.tar.gz metadata.gz
+
+                  cp "${NEW_NAME}" /home/runner/work/liquidz/liquidz/bindings/ruby/pkg/
+                  cd /home/runner/work/liquidz/liquidz/bindings/ruby
+                  echo "Created: pkg/${NEW_NAME}"
                 fi
               done
             fi
