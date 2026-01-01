@@ -13,6 +13,7 @@ on:
 permissions:
   contents: write
   pull-requests: read
+  id-token: write  # Required for trusted publishing to npm and PyPI
 
 jobs:
   check-release:
@@ -579,26 +580,21 @@ jobs:
           cp ../../artifacts/elixir-nif-*/*.so priv/ 2>/dev/null || true
 
       # -------------------------------------------------------------------------
-      # Publish to npm
+      # Publish to npm (using Trusted Publishing / OIDC)
       # -------------------------------------------------------------------------
       - name: Publish to npm
         working-directory: bindings/nodejs
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          npm publish --access public || echo "npm publish failed or package already exists"
+          npm publish --access public --provenance || echo "npm publish failed or package already exists"
 
       # -------------------------------------------------------------------------
-      # Publish to PyPI
+      # Publish to PyPI (using Trusted Publishing / OIDC)
       # -------------------------------------------------------------------------
       - name: Publish to PyPI
-        working-directory: bindings/python
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
-        run: |
-          pip install twine
-          twine upload dist/*.whl --skip-existing || echo "PyPI publish failed or package already exists"
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: bindings/python/dist/
+          skip-existing: true
 
       # -------------------------------------------------------------------------
       # Publish to RubyGems
