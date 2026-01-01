@@ -509,9 +509,15 @@ jobs:
           cd bindings/nodejs
           # Update version
           npm version ${{ needs.check-release.outputs.next-version }} --no-git-tag-version --allow-same-version
-          # Copy prebuilds from all platforms
+          # Copy prebuilds from all platforms (artifacts contain darwin-arm64/, linux-x64/, etc. directly)
           mkdir -p prebuilds
-          cp -r ../../artifacts/nodejs-prebuilt-*/prebuilds/* prebuilds/ 2>/dev/null || true
+          for dir in ../../artifacts/nodejs-prebuilt-*; do
+            if [ -d "$dir" ]; then
+              cp -r "$dir"/* prebuilds/ 2>/dev/null || true
+            fi
+          done
+          echo "Prebuilds directory contents:"
+          find prebuilds -type f 2>/dev/null || echo "No prebuilds found"
           # Install prebuildify-ci for runtime detection
           npm install --save node-gyp-build
 

@@ -38,5 +38,8 @@ dev = ["pytest>=7.0"]
 where = ["."]
 include = ["liquidz*"]
 
+[tool.setuptools.package-data]
+liquidz = ["lib/*.so", "lib/*.dylib", "lib/*.dll"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
