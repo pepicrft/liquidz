@@ -680,14 +680,40 @@ jobs:
           skip-existing: true
 
       # -------------------------------------------------------------------------
-      # Publish to RubyGems (using Trusted Publishing / OIDC)
+      # Publish to RubyGems
+      # Note: Requires Trusted Publishing to be configured on RubyGems.org
+      # Until that's set up, using API key (requires MFA to be set to "UI only")
       # -------------------------------------------------------------------------
       - name: Configure RubyGems credentials
         uses: rubygems/configure-rubygems-credentials@v1.0.0
+        continue-on-error: true
+        id: rubygems-oidc
 
-      - name: Publish to RubyGems
+      - name: Publish to RubyGems (OIDC)
+        if: steps.rubygems-oidc.outcome == 'success'
         working-directory: bindings/ruby
         run: |
+          for gem in pkg/*.gem; do
+            if [ -f "$gem" ]; then
+              echo "Publishing $gem..."
+              gem push "$gem" || echo "RubyGems publish failed for $gem"
+            fi
+          done
+
+      - name: Publish to RubyGems (API Key fallback)
+        if: steps.rubygems-oidc.outcome == 'failure'
+        working-directory: bindings/ruby
+        env:
+          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+        run: |
+          if [ -z "$GEM_HOST_API_KEY" ]; then
+            echo "::warning::RubyGems OIDC not configured and RUBYGEMS_API_KEY secret not set. Skipping RubyGems publish."
+            exit 0
+          fi
+          mkdir -p ~/.gem
+          echo "---" > ~/.gem/credentials
+          echo ":rubygems_api_key: $GEM_HOST_API_KEY" >> ~/.gem/credentials
+          chmod 0600 ~/.gem/credentials
           for gem in pkg/*.gem; do
             if [ -f "$gem" ]; then
               echo "Publishing $gem..."
