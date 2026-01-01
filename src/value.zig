@@ -99,10 +99,23 @@ pub const Value = union(enum) {
         return .{ .liquid_error = msg };
     }
 
-    /// Recursively free all memory owned by this value
+    /// Recursively free memory owned by this value's containers (objects, arrays).
+    ///
+    /// Note: String values are NOT freed because `initString` stores borrowed slices,
+    /// not owned copies. If you need owned strings, use `allocator.dupe()` when creating
+    /// the Value and free them separately, or use an arena allocator for the entire
+    /// render operation.
+    ///
+    /// For values created via `fromJson`, strings ARE copied and owned, but since we
+    /// cannot distinguish owned from borrowed strings at runtime, callers using
+    /// `fromJson` should use an arena allocator to handle cleanup.
     pub fn deinit(self: *Self, allocator: Allocator) void {
         switch (self.*) {
-            .string => |s| allocator.free(s),
+            .string => {
+                // Strings are not freed - they may be borrowed slices pointing to
+                // template source, user data, or string literals. Freeing them would
+                // cause crashes. Users should use arena allocators for owned strings.
+            },
             .array => |arr| {
                 for (arr) |*item| {
                     // Cast const to mutable - we own this memory and are freeing it
@@ -113,13 +126,15 @@ pub const Value = union(enum) {
             .object => |*obj| {
                 var it = obj.map.iterator();
                 while (it.next()) |entry| {
-                    allocator.free(entry.key_ptr.*);
+                    // Keys in StringArrayHashMap are also borrowed slices, not freed
                     entry.value_ptr.*.deinit(allocator);
                 }
                 obj.map.deinit();
             },
             .nil, .boolean, .integer, .float, .empty, .blank, .range, .liquid_error => {},
-            .boolean_drop => |bd| allocator.free(bd.display),
+            .boolean_drop => {
+                // Display string is borrowed, not freed
+            },
         }
     }
 
