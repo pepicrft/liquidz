@@ -23,19 +23,19 @@ class RenderError(LiquidzError):
 def _find_library() -> Path:
     """Find the liquidz_ffi library in common locations."""
     system = platform.system()
+    machine = platform.machine().lower()
 
     if system == "Darwin":
-        lib_name = "libliquidz_ffi.a"
         dylib_name = "libliquidz_ffi.dylib"
     elif system == "Windows":
-        lib_name = "liquidz_ffi.lib"
         dylib_name = "liquidz_ffi.dll"
     else:  # Linux and others
-        lib_name = "libliquidz_ffi.a"
         dylib_name = "libliquidz_ffi.so"
 
     # Search paths (prefer dynamic library for ctypes)
     search_paths = [
+        # Bundled with package (installed via pip)
+        Path(__file__).parent / "lib",
         # Relative to this module (development)
         Path(__file__).parent.parent.parent.parent / "zig-out" / "lib",
         # System paths
@@ -52,7 +52,8 @@ def _find_library() -> Path:
     # Fallback message
     raise LiquidzError(
         f"Could not find liquidz library ({dylib_name}). "
-        "Make sure to build with: zig build -Doptimize=ReleaseFast"
+        f"System: {system}, Machine: {machine}. "
+        "Make sure to install the correct platform-specific package."
     )
 
 

@@ -546,7 +546,7 @@ jobs:
           INDEXJS
 
       # -------------------------------------------------------------------------
-      # Prepare Python package with bundled library
+      # Prepare Python packages - publish platform-specific wheels
       # -------------------------------------------------------------------------
       - name: Prepare Python package
         run: |
@@ -554,19 +554,68 @@ jobs:
           NEW_VERSION="${{ needs.check-release.outputs.next-version }}"
           # Update version in pyproject.toml
           sed -i "s/version = \".*\"/version = \"$NEW_VERSION\"/" pyproject.toml
-          # Extract library from one of the platform-specific wheels and rebuild
-          # We use the Linux wheel's library for the "any" wheel
-          mkdir -p liquidz/lib
-          for whl in ../../artifacts/python-wheel-x86_64-linux/*.whl; do
-            if [ -f "$whl" ]; then
-              unzip -o "$whl" "liquidz/lib/*" -d . 2>/dev/null || true
-            fi
-          done
-          echo "Library contents:"
-          ls -la liquidz/lib/ || echo "No lib directory"
-          # Build fresh wheel with correct version
           pip install build wheel
-          python -m build --wheel
+          mkdir -p dist
+
+          # Function to build a platform-specific wheel
+          build_platform_wheel() {
+            local artifact_dir="$1"
+            local platform_tag="$2"
+            local lib_extension="$3"
+
+            if [ -d "$artifact_dir" ]; then
+              rm -rf liquidz/lib && mkdir -p liquidz/lib
+              for whl in "$artifact_dir"/*.whl; do
+                if [ -f "$whl" ]; then
+                  unzip -o "$whl" "liquidz/lib/*" -d . 2>/dev/null || true
+                fi
+              done
+
+              if ls liquidz/lib/*."$lib_extension" 1>/dev/null 2>&1; then
+                rm -rf build
+                python -m build --wheel
+
+                # Repack wheel with correct platform tag
+                for whl in dist/liquidz-*-py3-none-any.whl; do
+                  if [ -f "$whl" ]; then
+                    # Unpack wheel
+                    mkdir -p /tmp/wheel-repack
+                    rm -rf /tmp/wheel-repack/*
+                    unzip -o "$whl" -d /tmp/wheel-repack
+
+                    # Update WHEEL file with platform tag
+                    WHEEL_FILE=$(find /tmp/wheel-repack -name "WHEEL")
+                    sed -i "s/Tag: py3-none-any/Tag: py3-none-${platform_tag}/" "$WHEEL_FILE"
+
+                    # Update RECORD file
+                    RECORD_FILE=$(find /tmp/wheel-repack -name "RECORD")
+                    cd /tmp/wheel-repack
+                    # Regenerate RECORD (simplified - just list files)
+                    find . -type f ! -name "RECORD" | sed 's|^\./||' | while read f; do
+                      hash=$(sha256sum "$f" | awk '{print $1}')
+                      size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")
+                      echo "$f,sha256=$hash,$size"
+                    done > "$(dirname "$RECORD_FILE")/RECORD"
+                    echo "$(basename $(dirname $RECORD_FILE))/RECORD,," >> "$(dirname "$RECORD_FILE")/RECORD"
+                    cd -
+
+                    # Repack with new name
+                    NEW_WHL="dist/liquidz-${NEW_VERSION}-py3-none-${platform_tag}.whl"
+                    rm -f "$whl"
+                    cd /tmp/wheel-repack
+                    zip -r "$NEW_WHL" .
+                    cd -
+                  fi
+                done
+              fi
+            fi
+          }
+
+          # Build platform-specific wheels
+          build_platform_wheel "../../artifacts/python-wheel-x86_64-linux" "manylinux_2_17_x86_64.manylinux2014_x86_64" "so"
+          build_platform_wheel "../../artifacts/python-wheel-x86_64-macos" "macosx_10_9_x86_64" "dylib"
+          build_platform_wheel "../../artifacts/python-wheel-aarch64-macos" "macosx_11_0_arm64" "dylib"
+
           echo "Python dist contents:"
           ls -la dist/
 
@@ -631,19 +680,19 @@ jobs:
           skip-existing: true
 
       # -------------------------------------------------------------------------
-      # Publish to RubyGems
+      # Publish to RubyGems (using Trusted Publishing / OIDC)
       # -------------------------------------------------------------------------
+      - name: Configure RubyGems credentials
+        uses: rubygems/configure-rubygems-credentials@v1
+
       - name: Publish to RubyGems
         working-directory: bindings/ruby
-        env:
-          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
         run: |
-          mkdir -p ~/.gem
-          echo "---" > ~/.gem/credentials
-          echo ":rubygems_api_key: $GEM_HOST_API_KEY" >> ~/.gem/credentials
-          chmod 0600 ~/.gem/credentials
           for gem in pkg/*.gem; do
-            gem push "$gem" || echo "RubyGems publish failed for $gem"
+            if [ -f "$gem" ]; then
+              echo "Publishing $gem..."
+              gem push "$gem" || echo "RubyGems publish failed for $gem"
+            fi
           done
 
       # -------------------------------------------------------------------------
