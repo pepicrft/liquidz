@@ -554,15 +554,19 @@ jobs:
           NEW_VERSION="${{ needs.check-release.outputs.next-version }}"
           # Update version in pyproject.toml
           sed -i "s/version = \".*\"/version = \"$NEW_VERSION\"/" pyproject.toml
-          # Collect all wheels and rename to correct version
-          mkdir -p dist
-          for whl in ../../artifacts/python-wheel-*/*.whl; do
+          # Extract library from one of the platform-specific wheels and rebuild
+          # We use the Linux wheel's library for the "any" wheel
+          mkdir -p liquidz/lib
+          for whl in ../../artifacts/python-wheel-x86_64-linux/*.whl; do
             if [ -f "$whl" ]; then
-              # Rename wheel to use the new version
-              new_name=$(basename "$whl" | sed "s/liquidz-[0-9.]*-/liquidz-$NEW_VERSION-/")
-              cp "$whl" "dist/$new_name"
+              unzip -o "$whl" "liquidz/lib/*" -d . 2>/dev/null || true
             fi
           done
+          echo "Library contents:"
+          ls -la liquidz/lib/ || echo "No lib directory"
+          # Build fresh wheel with correct version
+          pip install build wheel
+          python -m build --wheel
           echo "Python dist contents:"
           ls -la dist/
 
@@ -575,15 +579,22 @@ jobs:
           NEW_VERSION="${{ needs.check-release.outputs.next-version }}"
           # Update version in gemspec
           sed -i "s/spec.version.*=.*/spec.version       = \"$NEW_VERSION\"/" liquidz.gemspec
-          # Collect all gems and rename to correct version
-          mkdir -p pkg
-          for gem in ../../artifacts/ruby-gem-*/*.gem; do
+          # Extract the compiled extension from one of the platform gems and rebuild
+          # We use the Linux gem's extension
+          mkdir -p lib/liquidz
+          for gem in ../../artifacts/ruby-gem-x86_64-linux/*.gem; do
             if [ -f "$gem" ]; then
-              # Rename gem to use the new version
-              new_name=$(basename "$gem" | sed "s/liquidz-[0-9.]*.gem/liquidz-$NEW_VERSION.gem/")
-              cp "$gem" "pkg/$new_name"
+              # Extract the .so file from the gem
+              gem unpack "$gem" --target=/tmp/gem-extract 2>/dev/null || true
+              cp /tmp/gem-extract/*/lib/liquidz/*.so lib/liquidz/ 2>/dev/null || true
             fi
           done
+          echo "Extension contents:"
+          ls -la lib/liquidz/ || echo "No extension found"
+          # Build fresh gem with correct version
+          gem build liquidz.gemspec
+          mkdir -p pkg
+          mv *.gem pkg/
           echo "Ruby pkg contents:"
           ls -la pkg/
 
