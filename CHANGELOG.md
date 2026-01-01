@@ -2,6 +2,13 @@
 
 ### Feat
 
+- Add WASM support to npm package for browser compatibility
+
+
+**Full Changelog**: https://github.com/pepicrft/liquidz/compare/0.3.0..0.4.0
+
+### Feat
+
 - Add ESM support for Node.js and fix Ruby import
 
 ### Fix
