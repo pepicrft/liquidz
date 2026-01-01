@@ -639,6 +639,9 @@ jobs:
           NEW_VERSION="${{ needs.check-release.outputs.next-version }}"
           mkdir -p pkg
 
+          # Update version in local gemspec first
+          sed -i "s/spec.version.*=.*/spec.version       = \"$NEW_VERSION\"/" liquidz.gemspec
+
           # Process each platform's gem artifact
           for gem_dir in ../../artifacts/ruby-gem-*; do
             if [ -d "$gem_dir" ]; then
@@ -646,26 +649,23 @@ jobs:
                 if [ -f "$gem" ]; then
                   echo "Processing gem: $gem"
 
-                  # Unpack the gem
+                  # Unpack the gem contents (not the gemspec)
                   rm -rf /tmp/gem-repack
                   mkdir -p /tmp/gem-repack
                   gem unpack "$gem" --target=/tmp/gem-repack
 
                   # Find the unpacked gem directory
-                  GEM_DIR=$(find /tmp/gem-repack -mindepth 1 -maxdepth 1 -type d | head -1)
+                  UNPACKED_DIR=$(find /tmp/gem-repack -mindepth 1 -maxdepth 1 -type d | head -1)
 
-                  if [ -d "$GEM_DIR" ]; then
-                    # Update version in gemspec
-                    cd "$GEM_DIR"
-                    sed -i "s/spec.version.*=.*/spec.version       = \"$NEW_VERSION\"/" liquidz.gemspec 2>/dev/null || \
-                    sed -i '' "s/spec.version.*=.*/spec.version       = \"$NEW_VERSION\"/" liquidz.gemspec
+                  if [ -d "$UNPACKED_DIR" ]; then
+                    # Copy our updated gemspec to the unpacked directory
+                    cp liquidz.gemspec "$UNPACKED_DIR/"
 
-                    # Rebuild gem with new version
+                    # Build gem with new version
+                    cd "$UNPACKED_DIR"
                     gem build liquidz.gemspec
-
-                    # Copy to pkg directory
-                    cp *.gem "$OLDPWD/pkg/"
-                    cd "$OLDPWD"
+                    cp *.gem /home/runner/work/liquidz/liquidz/bindings/ruby/pkg/
+                    cd /home/runner/work/liquidz/liquidz/bindings/ruby
                   fi
                 fi
               done
