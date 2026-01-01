@@ -323,6 +323,26 @@ jobs:
         working-directory: bindings/ruby
         run: bundle exec rake compile
 
+      - name: Fix extension rpath (macOS)
+        if: runner.os == 'macOS'
+        working-directory: bindings/ruby
+        run: |
+          # Make the bundle use a relative path to libruby for portability
+          for bundle in lib/liquidz_ext/*.bundle; do
+            if [ -f "$bundle" ]; then
+              echo "Fixing rpath for $bundle"
+              OLD_PATH="$(otool -L "$bundle" | grep libruby | awk '{print $1}')"
+              if [ -n "$OLD_PATH" ]; then
+                # Change hardcoded path to use @loader_path relative lookup
+                # The bundle is in gems/gemname/lib/liquidz_ext/ and Ruby lib is in Ruby's lib dir
+                # Use @executable_path to find the Ruby that's running
+                install_name_tool -change "$OLD_PATH" "@executable_path/../lib/libruby.3.3.dylib" "$bundle"
+              fi
+              # Show the result
+              otool -L "$bundle"
+            fi
+          done
+
       - name: Verify extension compiled
         working-directory: bindings/ruby
         run: |
