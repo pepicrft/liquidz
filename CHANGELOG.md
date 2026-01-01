@@ -1,4 +1,10 @@
 
+## [0.2.9] - 2026-01-01
+
+### Fix
+
+- Use macos-15-intel for x86_64 Ruby gem builds ([c099ba0](https://github.com/pepicrft/liquidz/commit/c099ba027ab1309c00c92fe557555f7a2ed90ac0))
+- Use generic Darwin platform and correct macOS runners for Ruby gems ([8cea1b5](https://github.com/pepicrft/liquidz/commit/8cea1b5049c71dfe89525b5f028797fb11ce46af))
 ## [0.2.8] - 2026-01-01
 
 ### Fix
@@ -108,6 +114,7 @@
 ### Refactor
 
 - Clean up, add filters module, documentation, and CI ([4bff5e2](https://github.com/pepicrft/liquidz/commit/4bff5e22eca7d553f4de115bcb3c93317d3c6a4a))
+[0.2.9]: https://github.com/pepicrft/liquidz/compare/0.2.8..0.2.9
 [0.2.8]: https://github.com/pepicrft/liquidz/compare/0.2.7..0.2.8
 [0.2.7]: https://github.com/pepicrft/liquidz/compare/0.2.6..0.2.7
 [0.2.6]: https://github.com/pepicrft/liquidz/compare/0.2.5..0.2.6
