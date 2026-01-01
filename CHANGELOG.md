@@ -1,5 +1,19 @@
 
 
+### Chore
+
+- Update browser demo to use v0.5.0
+
+
+**Full Changelog**: https://github.com/pepicrft/liquidz/compare/0.5.0..0.5.1
+
+### Feat
+
+- Add browser-specific WASM module and demo page
+
+
+**Full Changelog**: https://github.com/pepicrft/liquidz/compare/0.4.0..0.5.0
+
 ### Feat
 
 - Add WASM support to npm package for browser compatibility
