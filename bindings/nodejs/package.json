@@ -7,6 +7,7 @@
   "types": "index.d.ts",
   "exports": {
     ".": {
+      "browser": "./browser.mjs",
       "import": "./index.mjs",
       "require": "./index.js",
       "types": "./index.d.ts"
@@ -48,12 +49,14 @@
     "index.js",
     "index.mjs",
     "index.d.ts",
+    "browser.mjs",
     "liquidz.wasm",
     "binding.gyp",
     "src/",
     "prebuilds/"
   ],
   "browser": {
-    "./index.js": "./index.mjs"
+    "./index.js": "./browser.mjs",
+    "./index.mjs": "./browser.mjs"
   }
 }

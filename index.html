@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Liquidz - Browser Demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { color: #333; }
+    .example { background: #f5f5f5; padding: 1rem; border-radius: 4px; margin: 1rem 0; }
+    .output { color: #2563eb; font-weight: 500; }
+    code { background: #e5e5e5; padding: 0.2rem 0.4rem; border-radius: 2px; }
+  </style>
+</head>
+<body>
+  <h1>Liquidz Browser Demo</h1>
+  <p>Open the browser console to see the output, or check below:</p>
+  <div id="results"></div>
+
+  <script type="module">
+    const { init, render } = await import('https://unpkg.com/liquidz@0.4.0/browser.mjs');
+    await init();
+
+    const examples = [
+      { template: 'Hello {{ name }}!', data: { name: 'World' } },
+      { template: '{% for item in items %}{{ item }} {% endfor %}', data: { items: ['a', 'b', 'c'] } },
+      { template: '{{ name | upcase }}', data: { name: 'hello' } },
+      { template: '{% if active %}Yes{% else %}No{% endif %}', data: { active: true } },
+    ];
+
+    const results = document.getElementById('results');
+
+    for (const { template, data } of examples) {
+      const output = render(template, data);
+      console.log(`Template: ${template}`);
+      console.log(`Data: ${JSON.stringify(data)}`);
+      console.log(`Output: ${output}\n`);
+
+      const div = document.createElement('div');
+      div.className = 'example';
+      div.innerHTML = `
+        <div><strong>Template:</strong> <code>${template}</code></div>
+        <div><strong>Data:</strong> <code>${JSON.stringify(data)}</code></div>
+        <div><strong>Output:</strong> <span class="output">${output}</span></div>
+      `;
+      results.appendChild(div);
+    }
+  </script>
+</body>
+</html>
