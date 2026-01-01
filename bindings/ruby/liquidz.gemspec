@@ -17,10 +17,10 @@ Gem::Specification.new do |spec|
   spec.metadata["source_code_uri"] = spec.homepage
   spec.metadata["changelog_uri"] = "#{spec.homepage}/blob/main/CHANGELOG.md"
 
-  # Check if we have a precompiled extension
+  # Check if we have a precompiled extension AND we're building for release (not development)
   precompiled_ext = Dir["lib/liquidz_ext/*.{so,bundle,dll}"]
 
-  if precompiled_ext.any? && !ENV["FORCE_SOURCE_BUILD"]
+  if precompiled_ext.any? && ENV["BUILD_NATIVE_GEM"]
     # Native gem with precompiled extension - no compilation needed
     spec.files = Dir["lib/**/*", "README.md", "LICENSE"]
     # Use generic platform without Darwin version for broader compatibility

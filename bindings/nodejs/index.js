@@ -1,21 +1,18 @@
+const path = require('path');
+const fs = require('fs');
+
 let native = null;
 let wasmModule = null;
 let wasmReady = false;
 
-// Detect environment
-const isBrowser = typeof window !== 'undefined';
-const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
-
 // Try to load native addon in Node.js
-if (isNode && !isBrowser) {
+try {
+  native = require('node-gyp-build')(__dirname);
+} catch (e) {
   try {
-    native = require('node-gyp-build')(__dirname);
-  } catch (e) {
-    try {
-      native = require('./build/Release/liquidz.node');
-    } catch (e2) {
-      // Native not available, will use WASM
-    }
+    native = require('./build/Release/liquidz.node');
+  } catch (e2) {
+    // Native not available, will use WASM
   }
 }
 
@@ -35,27 +32,8 @@ async function init() {
     return;
   }
 
-  let wasmBuffer;
-
-  if (isBrowser) {
-    // Browser: fetch the WASM file
-    const response = await fetch(new URL('./liquidz.wasm', import.meta.url));
-    wasmBuffer = await response.arrayBuffer();
-  } else {
-    // Node.js/Deno/Bun without native: read the WASM file
-    const fs = await import('fs');
-    const path = await import('path');
-    const { fileURLToPath } = await import('url');
-
-    let wasmPath;
-    if (typeof __dirname !== 'undefined') {
-      wasmPath = path.join(__dirname, 'liquidz.wasm');
-    } else {
-      const currentDir = path.dirname(fileURLToPath(import.meta.url));
-      wasmPath = path.join(currentDir, 'liquidz.wasm');
-    }
-    wasmBuffer = fs.readFileSync(wasmPath);
-  }
+  const wasmPath = path.join(__dirname, 'liquidz.wasm');
+  const wasmBuffer = fs.readFileSync(wasmPath);
 
   const result = await WebAssembly.instantiate(wasmBuffer, {});
   wasmModule = result.instance;
