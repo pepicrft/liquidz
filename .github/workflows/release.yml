@@ -551,6 +551,7 @@ jobs:
       - name: Prepare Python package
         run: |
           cd bindings/python
+          PYTHON_DIR="$(pwd)"
           NEW_VERSION="${{ needs.check-release.outputs.next-version }}"
           # Update version in pyproject.toml
           sed -i "s/version = \".*\"/version = \"$NEW_VERSION\"/" pyproject.toml
@@ -579,32 +580,31 @@ jobs:
                 for whl in dist/liquidz-*-py3-none-any.whl; do
                   if [ -f "$whl" ]; then
                     # Unpack wheel
+                    rm -rf /tmp/wheel-repack
                     mkdir -p /tmp/wheel-repack
-                    rm -rf /tmp/wheel-repack/*
                     unzip -o "$whl" -d /tmp/wheel-repack
 
                     # Update WHEEL file with platform tag
                     WHEEL_FILE=$(find /tmp/wheel-repack -name "WHEEL")
                     sed -i "s/Tag: py3-none-any/Tag: py3-none-${platform_tag}/" "$WHEEL_FILE"
 
-                    # Update RECORD file
-                    RECORD_FILE=$(find /tmp/wheel-repack -name "RECORD")
-                    cd /tmp/wheel-repack
-                    # Regenerate RECORD (simplified - just list files)
-                    find . -type f ! -name "RECORD" | sed 's|^\./||' | while read f; do
-                      hash=$(sha256sum "$f" | awk '{print $1}')
-                      size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")
-                      echo "$f,sha256=$hash,$size"
-                    done > "$(dirname "$RECORD_FILE")/RECORD"
-                    echo "$(basename $(dirname $RECORD_FILE))/RECORD,," >> "$(dirname "$RECORD_FILE")/RECORD"
-                    cd -
+                    # Regenerate RECORD file
+                    RECORD_DIR=$(dirname "$(find /tmp/wheel-repack -name "RECORD")")
+                    RECORD_NAME=$(basename "$RECORD_DIR")
+                    (
+                      cd /tmp/wheel-repack
+                      find . -type f ! -name "RECORD" | sed 's|^\./||' | while read f; do
+                        hash=$(sha256sum "$f" | awk '{print $1}')
+                        size=$(stat -c%s "$f")
+                        echo "$f,sha256=$hash,$size"
+                      done > "$RECORD_DIR/RECORD"
+                      echo "${RECORD_NAME}/RECORD,," >> "$RECORD_DIR/RECORD"
+                    )
 
                     # Repack with new name
-                    NEW_WHL="dist/liquidz-${NEW_VERSION}-py3-none-${platform_tag}.whl"
+                    NEW_WHL="${PYTHON_DIR}/dist/liquidz-${NEW_VERSION}-py3-none-${platform_tag}.whl"
                     rm -f "$whl"
-                    cd /tmp/wheel-repack
-                    zip -r "$NEW_WHL" .
-                    cd -
+                    (cd /tmp/wheel-repack && zip -r "$NEW_WHL" .)
                   fi
                 done
               fi
