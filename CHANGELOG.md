@@ -1,4 +1,13 @@
 
+## [0.2.1] - 2026-01-01
+
+### Fix
+
+- Use PyPI API token instead of Trusted Publishing ([4409a49](https://github.com/pepicrft/liquidz/commit/4409a49baa40ae8c0713b5f521232973da270dfe))
+- Update release workflow for runner compatibility ([b47dc39](https://github.com/pepicrft/liquidz/commit/b47dc39554b5f847350a4e1db9edbcee9849496a))
+- Skip hash key rendering test with spacing difference ([439d682](https://github.com/pepicrft/liquidz/commit/439d68200eef1b6d9eb2de225c43ab28974b55a9))
+- Fix CI failures for Python binding and cross-compilation ([8c9d746](https://github.com/pepicrft/liquidz/commit/8c9d746242ab2a1d2b27ccf61868161a7098a3f9))
+- Use Erlang 28 (required by Elixir 1.18 with OTP 28) ([66668cf](https://github.com/pepicrft/liquidz/commit/66668cfccd9ea5afd38e57b50d5a9d102fcebfcf))
 ## [0.2.0] - 2025-12-31
 
 ### Feat
@@ -57,6 +66,7 @@
 ### Refactor
 
 - Clean up, add filters module, documentation, and CI ([4bff5e2](https://github.com/pepicrft/liquidz/commit/4bff5e22eca7d553f4de115bcb3c93317d3c6a4a))
+[0.2.1]: https://github.com/pepicrft/liquidz/compare/0.2.0..0.2.1
 [0.2.0]: https://github.com/pepicrft/liquidz/compare/0.1.2..0.2.0
 [0.1.2]: https://github.com/pepicrft/liquidz/compare/0.1.1..0.1.2
 [0.1.1]: https://github.com/pepicrft/liquidz/compare/0.1.0..0.1.1

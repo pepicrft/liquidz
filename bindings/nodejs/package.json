@@ -1,6 +1,6 @@
 {
   "name": "liquidz",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "High-performance Liquid template engine powered by Zig",
   "main": "index.js",
   "types": "index.d.ts",
@@ -28,7 +28,7 @@
     "node": ">=16.0.0"
   },
   "dependencies": {
-    "node-gyp-build": "^4.8.0"
+    "node-gyp-build": "^4.8.4"
   },
   "devDependencies": {
     "node-gyp": "^10.0.0",
