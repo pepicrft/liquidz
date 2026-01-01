@@ -13,6 +13,7 @@ on:
 permissions:
   contents: write
   pull-requests: read
+  id-token: write  # Required for trusted publishing to npm and PyPI
 
 jobs:
   check-release:
@@ -32,7 +33,6 @@ jobs:
       - name: Check if there are releasable changes
         id: is-releasable
         run: |
-          # Check if there are any tags
           if ! git describe --tags --abbrev=0 2>/dev/null; then
             echo "No tags found, this will be the first release"
             echo "should-release=true" >> $GITHUB_OUTPUT
@@ -46,7 +46,6 @@ jobs:
             exit 0
           fi
 
-          # Check if CHANGELOG.md exists
           if [ ! -f CHANGELOG.md ]; then
             echo "should-release=true" >> $GITHUB_OUTPUT
             exit 0
@@ -69,6 +68,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: echo "version=$(git cliff --bumped-version)" >> "$GITHUB_OUTPUT"
 
+  # ===========================================================================
+  # Build CLI executables
+  # ===========================================================================
   build-executables:
     name: Build executable (${{ matrix.target }})
     needs: check-release
@@ -123,6 +125,9 @@ jobs:
             dist/${{ matrix.artifact }}.zip
           if-no-files-found: ignore
 
+  # ===========================================================================
+  # Build native libraries for FFI
+  # ===========================================================================
   build-libraries:
     name: Build library (${{ matrix.target }})
     needs: check-release
@@ -154,13 +159,11 @@ jobs:
       - name: Package library
         run: |
           mkdir -p dist/${{ matrix.artifact }}
-
-          # Copy static library
           cp zig-out/lib/libliquidz_ffi.a dist/${{ matrix.artifact }}/ 2>/dev/null || true
           cp zig-out/lib/liquidz_ffi.lib dist/${{ matrix.artifact }}/ 2>/dev/null || true
-
-          # Copy C headers if they exist
-          cp -r zig-out/include dist/${{ matrix.artifact }}/ 2>/dev/null || true
+          cp zig-out/lib/libliquidz_ffi.so dist/${{ matrix.artifact }}/ 2>/dev/null || true
+          cp zig-out/lib/libliquidz_ffi.dylib dist/${{ matrix.artifact }}/ 2>/dev/null || true
+          cp zig-out/lib/liquidz_ffi.dll dist/${{ matrix.artifact }}/ 2>/dev/null || true
 
           cd dist
           if [[ "${{ matrix.target }}" == *"windows"* ]]; then
@@ -178,6 +181,224 @@ jobs:
             dist/${{ matrix.artifact }}.zip
           if-no-files-found: ignore
 
+  # ===========================================================================
+  # Build Node.js prebuilt binaries
+  # ===========================================================================
+  build-nodejs:
+    name: Build Node.js (${{ matrix.os }})
+    needs: check-release
+    if: needs.check-release.outputs.should-release == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-linux
+          - os: macos-13
+            target: x86_64-macos
+          - os: macos-latest
+            target: aarch64-macos
+          - os: windows-latest
+            target: x86_64-windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Build Zig library
+        run: zig build -Doptimize=ReleaseFast
+
+      - name: Install dependencies
+        working-directory: bindings/nodejs
+        run: npm install
+
+      - name: Build prebuilt binary
+        working-directory: bindings/nodejs
+        run: npx prebuildify --napi --strip
+
+      - name: Upload prebuilt
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodejs-prebuilt-${{ matrix.target }}
+          path: bindings/nodejs/prebuilds/
+
+  # ===========================================================================
+  # Build Python wheels
+  # ===========================================================================
+  build-python:
+    name: Build Python (${{ matrix.os }})
+    needs: check-release
+    if: needs.check-release.outputs.should-release == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-linux
+          - os: macos-13
+            target: x86_64-macos
+          - os: macos-latest
+            target: aarch64-macos
+          - os: windows-latest
+            target: x86_64-windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build Zig library
+        run: zig build -Doptimize=ReleaseFast
+
+      - name: Install build tools
+        run: pip install build wheel
+
+      - name: Copy library to package
+        working-directory: bindings/python
+        shell: bash
+        run: |
+          mkdir -p liquidz/lib
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp ../../zig-out/lib/liquidz_ffi.dll liquidz/lib/ 2>/dev/null || true
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            cp ../../zig-out/lib/libliquidz_ffi.dylib liquidz/lib/
+          else
+            cp ../../zig-out/lib/libliquidz_ffi.so liquidz/lib/
+          fi
+
+      - name: Build wheel
+        working-directory: bindings/python
+        run: python -m build --wheel
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-wheel-${{ matrix.target }}
+          path: bindings/python/dist/*.whl
+
+  # ===========================================================================
+  # Build Ruby native gems
+  # ===========================================================================
+  build-ruby:
+    name: Build Ruby (${{ matrix.os }})
+    needs: check-release
+    if: needs.check-release.outputs.should-release == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-linux
+            platform: x86_64-linux
+          - os: macos-13
+            target: x86_64-macos
+            platform: x86_64-darwin
+          - os: macos-latest
+            target: aarch64-macos
+            platform: arm64-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Build Zig library
+        run: zig build -Doptimize=ReleaseFast
+
+      - name: Install dependencies
+        working-directory: bindings/ruby
+        run: |
+          gem install bundler rake-compiler
+          bundle install
+
+      - name: Compile extension
+        working-directory: bindings/ruby
+        run: bundle exec rake compile
+
+      - name: Build gem
+        working-directory: bindings/ruby
+        run: gem build liquidz.gemspec
+
+      - name: Upload gem
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruby-gem-${{ matrix.target }}
+          path: bindings/ruby/*.gem
+
+  # ===========================================================================
+  # Build Elixir precompiled NIFs
+  # ===========================================================================
+  build-elixir:
+    name: Build Elixir (${{ matrix.os }})
+    needs: check-release
+    if: needs.check-release.outputs.should-release == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-linux
+            nif_target: x86_64-linux-gnu
+          - os: macos-13
+            target: x86_64-macos
+            nif_target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-macos
+            nif_target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Setup Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "26"
+          elixir-version: "1.16"
+
+      - name: Build Zig library
+        run: zig build -Doptimize=ReleaseFast
+
+      - name: Install dependencies
+        working-directory: bindings/elixir
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+
+      - name: Compile NIF
+        working-directory: bindings/elixir
+        run: mix compile
+
+      - name: Package precompiled NIF
+        working-directory: bindings/elixir
+        run: |
+          mkdir -p priv/native
+          cp priv/liquidz_nif.so priv/native/libliquidz_nif-${{ matrix.nif_target }}.so 2>/dev/null || true
+
+      - name: Upload precompiled NIF
+        uses: actions/upload-artifact@v4
+        with:
+          name: elixir-nif-${{ matrix.target }}
+          path: bindings/elixir/priv/
+
+  # ===========================================================================
+  # Build WebAssembly package
+  # ===========================================================================
   build-wasm:
     name: Build WebAssembly
     needs: check-release
@@ -188,24 +409,57 @@ jobs:
 
       - uses: jdx/mise-action@v2
 
-      - name: Build WASM
-        run: zig build -Doptimize=ReleaseFast -Dtarget=wasm32-wasi
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
 
-      - name: Package WASM
+      - name: Build WASM
+        run: zig build -Doptimize=ReleaseFast -Dtarget=wasm32-freestanding
+
+      - name: Package WASM for npm
         run: |
           mkdir -p dist/liquidz-wasm
-          cp zig-out/bin/liquidz.wasm dist/liquidz-wasm/ 2>/dev/null || true
-          cd dist && tar -czvf liquidz-wasm.tar.gz liquidz-wasm
+          cp zig-out/lib/libliquidz_wasm.a dist/liquidz-wasm/ 2>/dev/null || true
+          # Create package.json for WASM package
+          cat > dist/liquidz-wasm/package.json << 'PKGJSON'
+          {
+            "name": "@liquidz/wasm",
+            "version": "${{ needs.check-release.outputs.next-version }}",
+            "description": "Liquidz Liquid template engine - WebAssembly build",
+            "main": "index.js",
+            "types": "index.d.ts",
+            "keywords": ["liquid", "template", "wasm", "webassembly"],
+            "author": "Pedro Pinera Buendia",
+            "license": "MIT",
+            "repository": {
+              "type": "git",
+              "url": "https://github.com/pepicrft/liquidz.git"
+            }
+          }
+          PKGJSON
 
-      - name: Upload artifact
+      - name: Upload WASM artifact
         uses: actions/upload-artifact@v4
         with:
           name: liquidz-wasm
-          path: dist/liquidz-wasm.tar.gz
+          path: dist/liquidz-wasm/
 
-  release:
-    name: Create Release
-    needs: [check-release, build-executables, build-libraries, build-wasm]
+  # ===========================================================================
+  # Publish all packages atomically
+  # ===========================================================================
+  publish:
+    name: Publish packages
+    needs:
+      - check-release
+      - build-executables
+      - build-libraries
+      - build-nodejs
+      - build-python
+      - build-ruby
+      - build-elixir
+      - build-wasm
     if: needs.check-release.outputs.should-release == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -214,6 +468,28 @@ jobs:
           fetch-depth: 0
 
       - uses: jdx/mise-action@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Setup Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "26"
+          elixir-version: "1.16"
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -224,12 +500,133 @@ jobs:
         run: |
           mkdir -p release
           find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec cp {} release/ \;
-
-          # Generate checksums
           cd release
-          sha256sum * > sha256.txt
-          sha512sum * > sha512.txt
+          sha256sum * > sha256.txt 2>/dev/null || true
+          sha512sum * > sha512.txt 2>/dev/null || true
 
+      # -------------------------------------------------------------------------
+      # Prepare Node.js package with prebuilds
+      # -------------------------------------------------------------------------
+      - name: Prepare Node.js package
+        run: |
+          cd bindings/nodejs
+          # Update version
+          npm version ${{ needs.check-release.outputs.next-version }} --no-git-tag-version --allow-same-version
+          # Copy prebuilds from all platforms
+          mkdir -p prebuilds
+          cp -r ../../artifacts/nodejs-prebuilt-*/prebuilds/* prebuilds/ 2>/dev/null || true
+          # Install prebuildify-ci for runtime detection
+          npm install --save node-gyp-build
+
+      - name: Update Node.js index.js for prebuilds
+        run: |
+          cat > bindings/nodejs/index.js << 'INDEXJS'
+          let native;
+          try {
+            native = require('node-gyp-build')(__dirname);
+          } catch (e) {
+            native = require('./build/Release/liquidz.node');
+          }
+
+          function render(template, data = {}) {
+            if (typeof template !== 'string') {
+              throw new TypeError('Template must be a string');
+            }
+            return native.render(template, data);
+          }
+
+          function renderString(template, data = {}) {
+            return render(template, data);
+          }
+
+          module.exports = { render, renderString };
+          INDEXJS
+
+      # -------------------------------------------------------------------------
+      # Prepare Python package with bundled library
+      # -------------------------------------------------------------------------
+      - name: Prepare Python package
+        run: |
+          cd bindings/python
+          # Update version in pyproject.toml
+          sed -i 's/version = ".*"/version = "${{ needs.check-release.outputs.next-version }}"/' pyproject.toml
+          # Collect all wheels
+          mkdir -p dist
+          cp ../../artifacts/python-wheel-*/*.whl dist/ 2>/dev/null || true
+
+      # -------------------------------------------------------------------------
+      # Prepare Ruby gems
+      # -------------------------------------------------------------------------
+      - name: Prepare Ruby gems
+        run: |
+          cd bindings/ruby
+          # Update version in gemspec
+          sed -i 's/spec.version.*=.*/spec.version       = "${{ needs.check-release.outputs.next-version }}"/' liquidz.gemspec
+          # Collect all gems
+          mkdir -p pkg
+          cp ../../artifacts/ruby-gem-*/*.gem pkg/ 2>/dev/null || true
+
+      # -------------------------------------------------------------------------
+      # Prepare Elixir package
+      # -------------------------------------------------------------------------
+      - name: Prepare Elixir package
+        run: |
+          cd bindings/elixir
+          # Update version in mix.exs
+          sed -i 's/@version ".*"/@version "${{ needs.check-release.outputs.next-version }}"/' mix.exs
+          # Copy precompiled NIFs
+          mkdir -p priv/native
+          cp ../../artifacts/elixir-nif-*/native/* priv/native/ 2>/dev/null || true
+          cp ../../artifacts/elixir-nif-*/*.so priv/ 2>/dev/null || true
+
+      # -------------------------------------------------------------------------
+      # Publish to npm (using Trusted Publishing / OIDC)
+      # -------------------------------------------------------------------------
+      - name: Publish to npm
+        working-directory: bindings/nodejs
+        run: |
+          npm publish --access public --provenance || echo "npm publish failed or package already exists"
+
+      # -------------------------------------------------------------------------
+      # Publish to PyPI (using Trusted Publishing / OIDC)
+      # -------------------------------------------------------------------------
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: bindings/python/dist/
+          skip-existing: true
+
+      # -------------------------------------------------------------------------
+      # Publish to RubyGems
+      # -------------------------------------------------------------------------
+      - name: Publish to RubyGems
+        working-directory: bindings/ruby
+        env:
+          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+        run: |
+          mkdir -p ~/.gem
+          echo "---" > ~/.gem/credentials
+          echo ":rubygems_api_key: $GEM_HOST_API_KEY" >> ~/.gem/credentials
+          chmod 0600 ~/.gem/credentials
+          for gem in pkg/*.gem; do
+            gem push "$gem" || echo "RubyGems publish failed for $gem"
+          done
+
+      # -------------------------------------------------------------------------
+      # Publish to Hex.pm
+      # -------------------------------------------------------------------------
+      - name: Publish to Hex.pm
+        working-directory: bindings/elixir
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        run: |
+          mix local.hex --force
+          mix deps.get
+          mix hex.publish --yes || echo "Hex publish failed or package already exists"
+
+      # -------------------------------------------------------------------------
+      # Update CHANGELOG and create GitHub release
+      # -------------------------------------------------------------------------
       - name: Update CHANGELOG.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -242,7 +639,7 @@ jobs:
           commit_options: "--allow-empty"
           tagging_message: ${{ needs.check-release.outputs.next-version }}
           skip_dirty_check: true
-          file_pattern: "CHANGELOG.md"
+          file_pattern: "CHANGELOG.md bindings/*/package.json bindings/*/pyproject.toml bindings/*/mix.exs bindings/*/*.gemspec"
           commit_message: "[Release] liquidz ${{ needs.check-release.outputs.next-version }}"
 
       - name: Get release notes

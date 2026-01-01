@@ -1,0 +1,44 @@
+{
+  "name": "liquidz",
+  "version": "0.2.0",
+  "description": "High-performance Liquid template engine powered by Zig",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "scripts": {
+    "build": "node-gyp rebuild",
+    "install": "node-gyp-build || node-gyp rebuild",
+    "test": "node test.js",
+    "prebuild": "prebuildify --napi --strip"
+  },
+  "keywords": [
+    "liquid",
+    "template",
+    "templating",
+    "zig",
+    "fast",
+    "shopify"
+  ],
+  "author": "Pedro Piñera Buendía",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pepicrft/liquidz.git"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "node-gyp-build": "^4.8.0"
+  },
+  "devDependencies": {
+    "node-gyp": "^10.0.0",
+    "prebuildify": "^6.0.0"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "binding.gyp",
+    "src/",
+    "prebuilds/"
+  ]
+}

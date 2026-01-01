@@ -11,9 +11,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Check if we're building for WASM
+    const is_wasm = target.result.cpu.arch == .wasm32 or target.result.cpu.arch == .wasm64;
+
     // Executable (skip for WASM)
     var exe: ?*std.Build.Step.Compile = null;
-    if (target.result.os.tag != .freestanding) {
+    if (!is_wasm and target.result.os.tag != .freestanding) {
         const exe_val = b.addExecutable(.{
             .name = "liquidz",
             .root_module = b.createModule(.{
@@ -29,8 +32,11 @@ pub fn build(b: *std.Build) void {
         exe = exe_val;
     }
 
-    // C ABI static library for Ruby/FFI integration (skip for WASM)
-    if (target.result.os.tag != .freestanding) {
+    // Check if we're building for a non-WASM native target (skip FFI for WASM targets)
+    const is_native_compatible = !is_wasm and target.result.os.tag != .freestanding;
+
+    // C ABI static library for Ruby/Node.js/Elixir integration (skip for WASM)
+    if (is_native_compatible) {
         const ffi_lib = b.addLibrary(.{
             .name = "liquidz_ffi",
             .linkage = .static,
@@ -47,6 +53,26 @@ pub fn build(b: *std.Build) void {
         b.installArtifact(ffi_lib);
     }
 
+    // C ABI dynamic/shared library for Python/Deno FFI integration (skip for WASM and cross-compilation)
+    // Dynamic libraries can only be built for the host platform reliably
+    const is_native_target = target.query.isNative();
+    if (is_native_compatible and is_native_target) {
+        const ffi_shared_lib = b.addLibrary(.{
+            .name = "liquidz_ffi",
+            .linkage = .dynamic,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/ffi.zig"),
+                .target = target,
+                .optimize = optimize,
+                .imports = &.{
+                    .{ .name = "liquidz", .module = liquidz_mod },
+                },
+            }),
+        });
+        ffi_shared_lib.linkLibC();
+        b.installArtifact(ffi_shared_lib);
+    }
+
     // Run step
     if (exe) |exe_val| {
         const run_cmd = b.addRunArtifact(exe_val);
@@ -59,7 +85,7 @@ pub fn build(b: *std.Build) void {
     }
 
     // Benchmark executable (skip for WASM)
-    if (target.result.os.tag != .freestanding) {
+    if (is_native_compatible) {
         const bench_exe = b.addExecutable(.{
             .name = "bench",
             .root_module = b.createModule(.{

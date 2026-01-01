@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "liquidz"
+version = "0.2.0"
+description = "High-performance Liquid template engine powered by Zig"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Pedro Pinera Buendia", email = "pedro@ppinera.es"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing :: Markup",
+]
+keywords = ["liquid", "template", "templating", "zig", "fast", "shopify"]
+requires-python = ">=3.8"
+
+[project.urls]
+Homepage = "https://github.com/pepicrft/liquidz"
+Repository = "https://github.com/pepicrft/liquidz"
+Issues = "https://github.com/pepicrft/liquidz/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["liquidz*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

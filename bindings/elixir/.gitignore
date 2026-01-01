@@ -1,0 +1,18 @@
+# Elixir build artifacts
+/_build/
+/deps/
+/doc/
+/.fetch
+erl_crash.dump
+*.ez
+*.beam
+/priv/*.so
+/priv/*.dylib
+
+# Mix lock file
+/mix.lock
+
+# IDE
+.idea/
+*.iml
+.vscode/
