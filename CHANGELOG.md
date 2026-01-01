@@ -1,5 +1,16 @@
 
 
+### Docs
+
+- Add language binding examples to README
+
+### Fix
+
+- Fix Node.js CJS module and Ruby gemspec platform detection
+
+
+**Full Changelog**: https://github.com/pepicrft/liquidz/compare/0.5.1..0.5.2
+
 ### Chore
 
 - Update browser demo to use v0.5.0
