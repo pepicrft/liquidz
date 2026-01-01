@@ -294,10 +294,10 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-linux
             platform: x86_64-linux
-          - os: macos-14
+          - os: macos-13
             target: x86_64-macos
             platform: x86_64-darwin
-          - os: macos-latest
+          - os: macos-14
             target: aarch64-macos
             platform: arm64-darwin
     steps:

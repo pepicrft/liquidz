@@ -23,7 +23,14 @@ Gem::Specification.new do |spec|
   if precompiled_ext.any? && !ENV["FORCE_SOURCE_BUILD"]
     # Native gem with precompiled extension - no compilation needed
     spec.files = Dir["lib/**/*", "README.md", "LICENSE"]
-    spec.platform = Gem::Platform::CURRENT
+    # Use generic platform without Darwin version for broader compatibility
+    current = Gem::Platform.local
+    if current.os == "darwin"
+      # Use arm64-darwin or x86_64-darwin without version suffix
+      spec.platform = Gem::Platform.new("#{current.cpu}-darwin")
+    else
+      spec.platform = current
+    end
   else
     # Source gem - needs compilation
     spec.files = Dir["lib/**/*.rb", "ext/**/*", "README.md", "LICENSE"]
