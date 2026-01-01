@@ -1,4 +1,11 @@
 
+## [0.2.8] - 2026-01-01
+
+### Fix
+
+- Update gem version during build step for correct platform tagging ([a576c21](https://github.com/pepicrft/liquidz/commit/a576c211e7d2f0aac5c3e59b4c822e028b1f5ba2))
+- Use absolute paths in Ruby gem preparation ([774ae74](https://github.com/pepicrft/liquidz/commit/774ae74a81c07e4dcef5e96573797efdd287911f))
+- Preserve platform in Ruby gem by updating metadata directly ([debc6ea](https://github.com/pepicrft/liquidz/commit/debc6eaf5af9c941713adf6a0649eb53ecbe0771))
 ## [0.2.7] - 2026-01-01
 
 ### Fix
@@ -101,6 +108,7 @@
 ### Refactor
 
 - Clean up, add filters module, documentation, and CI ([4bff5e2](https://github.com/pepicrft/liquidz/commit/4bff5e22eca7d553f4de115bcb3c93317d3c6a4a))
+[0.2.8]: https://github.com/pepicrft/liquidz/compare/0.2.7..0.2.8
 [0.2.7]: https://github.com/pepicrft/liquidz/compare/0.2.6..0.2.7
 [0.2.6]: https://github.com/pepicrft/liquidz/compare/0.2.5..0.2.6
 [0.2.5]: https://github.com/pepicrft/liquidz/compare/0.2.4..0.2.5
