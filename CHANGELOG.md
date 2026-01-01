@@ -1,4 +1,9 @@
 
+## [0.2.10] - 2026-01-01
+
+### Fix
+
+- Use @executable_path for portable macOS Ruby extension ([9c6bbee](https://github.com/pepicrft/liquidz/commit/9c6bbee5a2c56beca4b5555a1c7c2942f28f80ae))
 ## [0.2.9] - 2026-01-01
 
 ### Fix
@@ -114,6 +119,7 @@
 ### Refactor
 
 - Clean up, add filters module, documentation, and CI ([4bff5e2](https://github.com/pepicrft/liquidz/commit/4bff5e22eca7d553f4de115bcb3c93317d3c6a4a))
+[0.2.10]: https://github.com/pepicrft/liquidz/compare/0.2.9..0.2.10
 [0.2.9]: https://github.com/pepicrft/liquidz/compare/0.2.8..0.2.9
 [0.2.8]: https://github.com/pepicrft/liquidz/compare/0.2.7..0.2.8
 [0.2.7]: https://github.com/pepicrft/liquidz/compare/0.2.6..0.2.7
