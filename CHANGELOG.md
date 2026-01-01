@@ -1,4 +1,10 @@
 
+## [0.2.7] - 2026-01-01
+
+### Fix
+
+- Copy gemspec to unpacked gem directory for version update ([dadfe3b](https://github.com/pepicrft/liquidz/commit/dadfe3be5bf4049f7193fd0964e8fb86d90328af))
+- Build platform-specific Ruby gems with precompiled extensions ([0056aad](https://github.com/pepicrft/liquidz/commit/0056aad395c3e3b7bc165c9621b99993cd23abd6))
 ## [0.2.6] - 2026-01-01
 
 ### Fix
@@ -95,6 +101,7 @@
 ### Refactor
 
 - Clean up, add filters module, documentation, and CI ([4bff5e2](https://github.com/pepicrft/liquidz/commit/4bff5e22eca7d553f4de115bcb3c93317d3c6a4a))
+[0.2.7]: https://github.com/pepicrft/liquidz/compare/0.2.6..0.2.7
 [0.2.6]: https://github.com/pepicrft/liquidz/compare/0.2.5..0.2.6
 [0.2.5]: https://github.com/pepicrft/liquidz/compare/0.2.4..0.2.5
 [0.2.4]: https://github.com/pepicrft/liquidz/compare/0.2.3..0.2.4
