@@ -1,4 +1,10 @@
 
+## [0.2.5] - 2026-01-01
+
+### Fix
+
+- Rebuild Python wheel and Ruby gem with correct version ([fa52cc6](https://github.com/pepicrft/liquidz/commit/fa52cc606d60be1265e8a89872ea3e2155f7075e))
+- Correct version in published packages and use NPM_TOKEN ([fc01357](https://github.com/pepicrft/liquidz/commit/fc01357dd09ea7ffe35e07ee40de2b1be85447ff))
 ## [0.2.4] - 2026-01-01
 
 ### Fix
@@ -81,6 +87,7 @@
 ### Refactor
 
 - Clean up, add filters module, documentation, and CI ([4bff5e2](https://github.com/pepicrft/liquidz/commit/4bff5e22eca7d553f4de115bcb3c93317d3c6a4a))
+[0.2.5]: https://github.com/pepicrft/liquidz/compare/0.2.4..0.2.5
 [0.2.4]: https://github.com/pepicrft/liquidz/compare/0.2.3..0.2.4
 [0.2.3]: https://github.com/pepicrft/liquidz/compare/0.2.2..0.2.3
 [0.2.2]: https://github.com/pepicrft/liquidz/compare/0.2.1..0.2.2
