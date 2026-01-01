@@ -130,23 +130,27 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
 
-    // WebAssembly build
+    // WebAssembly build - produces a .wasm file with exported functions for browser use
     const wasm_target = b.resolveTargetQuery(.{
         .cpu_arch = .wasm32,
         .os_tag = .freestanding,
     });
 
-    const wasm_lib = b.addLibrary(.{
-        .name = "liquidz_wasm",
-        .linkage = .static,
+    const wasm_exe = b.addExecutable(.{
+        .name = "liquidz",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/root.zig"),
+            .root_source_file = b.path("src/wasm_ffi.zig"),
             .target = wasm_target,
             .optimize = optimize,
+            .imports = &.{
+                .{ .name = "liquidz", .module = liquidz_mod },
+            },
         }),
     });
-    b.installArtifact(wasm_lib);
+    // Export all public functions and don't require entry point
+    wasm_exe.entry = .disabled;
+    wasm_exe.rdynamic = true;
 
-    const wasm_step = b.step("wasm", "Build WebAssembly library");
-    wasm_step.dependOn(&b.addInstallArtifact(wasm_lib, .{}).step);
+    const wasm_step = b.step("wasm", "Build WebAssembly module for browser");
+    wasm_step.dependOn(&b.addInstallArtifact(wasm_exe, .{}).step);
 }

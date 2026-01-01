@@ -23,8 +23,10 @@
     "template",
     "templating",
     "zig",
+    "wasm",
     "fast",
-    "shopify"
+    "shopify",
+    "browser"
   ],
   "author": "Pedro Piñera Buendía",
   "license": "MIT",
@@ -46,8 +48,12 @@
     "index.js",
     "index.mjs",
     "index.d.ts",
+    "liquidz.wasm",
     "binding.gyp",
     "src/",
     "prebuilds/"
-  ]
+  ],
+  "browser": {
+    "./index.js": "./index.mjs"
+  }
 }

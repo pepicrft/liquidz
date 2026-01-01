@@ -438,42 +438,19 @@ jobs:
 
       - uses: jdx/mise-action@v2
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          registry-url: "https://registry.npmjs.org"
-
       - name: Build WASM
-        run: zig build -Doptimize=ReleaseFast -Dtarget=wasm32-freestanding
+        run: zig build wasm -Doptimize=ReleaseFast
 
-      - name: Package WASM for npm
+      - name: Verify WASM build
         run: |
-          mkdir -p dist/liquidz-wasm
-          cp zig-out/lib/libliquidz_wasm.a dist/liquidz-wasm/ 2>/dev/null || true
-          # Create package.json for WASM package
-          cat > dist/liquidz-wasm/package.json << 'PKGJSON'
-          {
-            "name": "@liquidz/wasm",
-            "version": "${{ needs.check-release.outputs.next-version }}",
-            "description": "Liquidz Liquid template engine - WebAssembly build",
-            "main": "index.js",
-            "types": "index.d.ts",
-            "keywords": ["liquid", "template", "wasm", "webassembly"],
-            "author": "Pedro Pinera Buendia",
-            "license": "MIT",
-            "repository": {
-              "type": "git",
-              "url": "https://github.com/pepicrft/liquidz.git"
-            }
-          }
-          PKGJSON
+          ls -la zig-out/bin/liquidz.wasm
+          echo "WASM size: $(du -h zig-out/bin/liquidz.wasm | cut -f1)"
 
       - name: Upload WASM artifact
         uses: actions/upload-artifact@v4
         with:
           name: liquidz-wasm
-          path: dist/liquidz-wasm/
+          path: zig-out/bin/liquidz.wasm
 
   # ===========================================================================
   # Publish all packages atomically
@@ -537,7 +514,7 @@ jobs:
           sha512sum * > sha512.txt 2>/dev/null || true
 
       # -------------------------------------------------------------------------
-      # Prepare Node.js package with prebuilds
+      # Prepare Node.js package with prebuilds and WASM
       # -------------------------------------------------------------------------
       - name: Prepare Node.js package
         run: |
@@ -553,32 +530,11 @@ jobs:
           done
           echo "Prebuilds directory contents:"
           find prebuilds -type f 2>/dev/null || echo "No prebuilds found"
+          # Copy WASM file from artifacts
+          cp ../../artifacts/liquidz-wasm/liquidz.wasm . 2>/dev/null || echo "WASM file not found"
+          ls -la liquidz.wasm 2>/dev/null || echo "WASM file missing"
           # Install prebuildify-ci for runtime detection
           npm install --save node-gyp-build
-
-      - name: Update Node.js index.js for prebuilds
-        run: |
-          cat > bindings/nodejs/index.js << 'INDEXJS'
-          let native;
-          try {
-            native = require('node-gyp-build')(__dirname);
-          } catch (e) {
-            native = require('./build/Release/liquidz.node');
-          }
-
-          function render(template, data = {}) {
-            if (typeof template !== 'string') {
-              throw new TypeError('Template must be a string');
-            }
-            return native.render(template, data);
-          }
-
-          function renderString(template, data = {}) {
-            return render(template, data);
-          }
-
-          module.exports = { render, renderString };
-          INDEXJS
 
       # -------------------------------------------------------------------------
       # Prepare Python packages - publish platform-specific wheels
