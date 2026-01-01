@@ -18,6 +18,82 @@ zig build
 ./zig-out/bin/liquidz template.liquid '{"name": "World"}'
 ```
 
+### Language Bindings
+
+#### Node.js
+
+```bash
+npm install liquidz
+```
+
+```javascript
+import { render } from 'liquidz';
+console.log(render('Hello, {{ name }}!', { name: 'World' }));
+```
+
+#### Browser
+
+```javascript
+import { init, render } from 'https://unpkg.com/liquidz/browser.mjs';
+await init();
+console.log(render('Hello, {{ name }}!', { name: 'World' }));
+```
+
+#### Bun
+
+```bash
+bun add liquidz
+```
+
+```javascript
+import { render } from 'liquidz';
+console.log(render('Hello, {{ name }}!', { name: 'World' }));
+```
+
+#### Deno
+
+```bash
+deno add npm:liquidz
+```
+
+```javascript
+import { render } from 'liquidz';
+console.log(render('Hello, {{ name }}!', { name: 'World' }));
+```
+
+#### Ruby
+
+```bash
+gem install liquidz
+```
+
+```ruby
+require 'liquidz_ext'
+puts Liquidz.render("Hello, {{ name }}!", { name: "World" })
+```
+
+#### Elixir
+
+```elixir
+# mix.exs
+{:liquidz, "~> 0.5"}
+```
+
+```elixir
+Liquidz.render!("Hello, {{ name }}!", %{name: "World"})
+```
+
+#### Python
+
+```bash
+pip install liquidz
+```
+
+```python
+from liquidz import render
+print(render("Hello, {{ name }}!", {"name": "World"}))
+```
+
 ## Testing
 
 ```bash
