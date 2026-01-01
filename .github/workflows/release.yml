@@ -551,11 +551,20 @@ jobs:
       - name: Prepare Python package
         run: |
           cd bindings/python
+          NEW_VERSION="${{ needs.check-release.outputs.next-version }}"
           # Update version in pyproject.toml
-          sed -i 's/version = ".*"/version = "${{ needs.check-release.outputs.next-version }}"/' pyproject.toml
-          # Collect all wheels
+          sed -i "s/version = \".*\"/version = \"$NEW_VERSION\"/" pyproject.toml
+          # Collect all wheels and rename to correct version
           mkdir -p dist
-          cp ../../artifacts/python-wheel-*/*.whl dist/ 2>/dev/null || true
+          for whl in ../../artifacts/python-wheel-*/*.whl; do
+            if [ -f "$whl" ]; then
+              # Rename wheel to use the new version
+              new_name=$(basename "$whl" | sed "s/liquidz-[0-9.]*-/liquidz-$NEW_VERSION-/")
+              cp "$whl" "dist/$new_name"
+            fi
+          done
+          echo "Python dist contents:"
+          ls -la dist/
 
       # -------------------------------------------------------------------------
       # Prepare Ruby gems
@@ -563,11 +572,20 @@ jobs:
       - name: Prepare Ruby gems
         run: |
           cd bindings/ruby
+          NEW_VERSION="${{ needs.check-release.outputs.next-version }}"
           # Update version in gemspec
-          sed -i 's/spec.version.*=.*/spec.version       = "${{ needs.check-release.outputs.next-version }}"/' liquidz.gemspec
-          # Collect all gems
+          sed -i "s/spec.version.*=.*/spec.version       = \"$NEW_VERSION\"/" liquidz.gemspec
+          # Collect all gems and rename to correct version
           mkdir -p pkg
-          cp ../../artifacts/ruby-gem-*/*.gem pkg/ 2>/dev/null || true
+          for gem in ../../artifacts/ruby-gem-*/*.gem; do
+            if [ -f "$gem" ]; then
+              # Rename gem to use the new version
+              new_name=$(basename "$gem" | sed "s/liquidz-[0-9.]*.gem/liquidz-$NEW_VERSION.gem/")
+              cp "$gem" "pkg/$new_name"
+            fi
+          done
+          echo "Ruby pkg contents:"
+          ls -la pkg/
 
       # -------------------------------------------------------------------------
       # Prepare Elixir package
@@ -583,12 +601,14 @@ jobs:
           cp ../../artifacts/elixir-nif-*/*.so priv/ 2>/dev/null || true
 
       # -------------------------------------------------------------------------
-      # Publish to npm (using Trusted Publishing / OIDC)
+      # Publish to npm
       # -------------------------------------------------------------------------
       - name: Publish to npm
         working-directory: bindings/nodejs
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          npm publish --access public --provenance || echo "npm publish failed or package already exists"
+          npm publish --access public || echo "npm publish failed or package already exists"
 
       # -------------------------------------------------------------------------
       # Publish to PyPI (using Trusted Publishing / OIDC)
