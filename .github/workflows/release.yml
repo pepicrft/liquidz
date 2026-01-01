@@ -582,13 +582,16 @@ jobs:
           npm publish --access public --provenance || echo "npm publish failed or package already exists"
 
       # -------------------------------------------------------------------------
-      # Publish to PyPI (using Trusted Publishing / OIDC)
+      # Publish to PyPI (using API token)
       # -------------------------------------------------------------------------
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: bindings/python/dist/
-          skip-existing: true
+        working-directory: bindings/python
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_KEY }}
+        run: |
+          pip install twine
+          twine upload dist/*.whl --skip-existing || echo "PyPI publish failed or package already exists"
 
       # -------------------------------------------------------------------------
       # Publish to RubyGems
