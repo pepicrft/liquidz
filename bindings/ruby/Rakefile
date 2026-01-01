@@ -1,7 +1,23 @@
 require "rake/extensiontask"
+require "rubygems/package_task"
 
-Rake::ExtensionTask.new("liquidz_ext") do |ext|
+spec = Gem::Specification.load("liquidz.gemspec")
+
+Rake::ExtensionTask.new("liquidz_ext", spec) do |ext|
   ext.lib_dir = "lib/liquidz_ext"
+  ext.cross_compile = true
+  ext.cross_platform = %w[x86_64-linux x86_64-darwin arm64-darwin]
+end
+
+Gem::PackageTask.new(spec) do |pkg|
+  pkg.need_zip = false
+  pkg.need_tar = false
 end
 
 task default: :compile
+
+desc "Build native gem for current platform"
+task :native_gem => [:compile] do
+  # Build gem with precompiled extension
+  sh "gem build liquidz.gemspec"
+end

@@ -17,9 +17,19 @@ Gem::Specification.new do |spec|
   spec.metadata["source_code_uri"] = spec.homepage
   spec.metadata["changelog_uri"] = "#{spec.homepage}/blob/main/CHANGELOG.md"
 
-  spec.files         = Dir["lib/**/*", "ext/**/*", "README.md", "LICENSE"]
-  spec.require_paths = ["lib"]
-  spec.extensions    = ["ext/liquidz_ext/extconf.rb"]
+  # Check if we have a precompiled extension
+  precompiled_ext = Dir["lib/liquidz_ext/*.{so,bundle,dll}"]
 
+  if precompiled_ext.any? && !ENV["FORCE_SOURCE_BUILD"]
+    # Native gem with precompiled extension - no compilation needed
+    spec.files = Dir["lib/**/*", "README.md", "LICENSE"]
+    spec.platform = Gem::Platform::CURRENT
+  else
+    # Source gem - needs compilation
+    spec.files = Dir["lib/**/*.rb", "ext/**/*", "README.md", "LICENSE"]
+    spec.extensions = ["ext/liquidz_ext/extconf.rb"]
+  end
+
+  spec.require_paths = ["lib"]
   spec.add_dependency "json"
 end

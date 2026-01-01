@@ -323,9 +323,20 @@ jobs:
         working-directory: bindings/ruby
         run: bundle exec rake compile
 
-      - name: Build gem
+      - name: Verify extension compiled
         working-directory: bindings/ruby
-        run: gem build liquidz.gemspec
+        run: |
+          echo "Checking for compiled extension in lib/liquidz_ext/:"
+          ls -la lib/liquidz_ext/ || echo "Directory not found"
+          find lib -name "*.so" -o -name "*.bundle" -o -name "*.dll" 2>/dev/null || echo "No extensions found"
+
+      - name: Build native gem
+        working-directory: bindings/ruby
+        run: |
+          # Build gem - it will detect precompiled extension and create native gem
+          gem build liquidz.gemspec
+          echo "Built gem:"
+          ls -la *.gem
 
       - name: Upload gem
         uses: actions/upload-artifact@v4
@@ -620,30 +631,47 @@ jobs:
           ls -la dist/
 
       # -------------------------------------------------------------------------
-      # Prepare Ruby gems
+      # Prepare Ruby gems - collect all platform-specific gems and update versions
       # -------------------------------------------------------------------------
       - name: Prepare Ruby gems
         run: |
           cd bindings/ruby
           NEW_VERSION="${{ needs.check-release.outputs.next-version }}"
-          # Update version in gemspec
-          sed -i "s/spec.version.*=.*/spec.version       = \"$NEW_VERSION\"/" liquidz.gemspec
-          # Extract the compiled extension from one of the platform gems and rebuild
-          # We use the Linux gem's extension
-          mkdir -p lib/liquidz
-          for gem in ../../artifacts/ruby-gem-x86_64-linux/*.gem; do
-            if [ -f "$gem" ]; then
-              # Extract the .so file from the gem
-              gem unpack "$gem" --target=/tmp/gem-extract 2>/dev/null || true
-              cp /tmp/gem-extract/*/lib/liquidz/*.so lib/liquidz/ 2>/dev/null || true
+          mkdir -p pkg
+
+          # Process each platform's gem artifact
+          for gem_dir in ../../artifacts/ruby-gem-*; do
+            if [ -d "$gem_dir" ]; then
+              for gem in "$gem_dir"/*.gem; do
+                if [ -f "$gem" ]; then
+                  echo "Processing gem: $gem"
+
+                  # Unpack the gem
+                  rm -rf /tmp/gem-repack
+                  mkdir -p /tmp/gem-repack
+                  gem unpack "$gem" --target=/tmp/gem-repack
+
+                  # Find the unpacked gem directory
+                  GEM_DIR=$(find /tmp/gem-repack -mindepth 1 -maxdepth 1 -type d | head -1)
+
+                  if [ -d "$GEM_DIR" ]; then
+                    # Update version in gemspec
+                    cd "$GEM_DIR"
+                    sed -i "s/spec.version.*=.*/spec.version       = \"$NEW_VERSION\"/" liquidz.gemspec 2>/dev/null || \
+                    sed -i '' "s/spec.version.*=.*/spec.version       = \"$NEW_VERSION\"/" liquidz.gemspec
+
+                    # Rebuild gem with new version
+                    gem build liquidz.gemspec
+
+                    # Copy to pkg directory
+                    cp *.gem "$OLDPWD/pkg/"
+                    cd "$OLDPWD"
+                  fi
+                fi
+              done
             fi
           done
-          echo "Extension contents:"
-          ls -la lib/liquidz/ || echo "No extension found"
-          # Build fresh gem with correct version
-          gem build liquidz.gemspec
-          mkdir -p pkg
-          mv *.gem pkg/
+
           echo "Ruby pkg contents:"
           ls -la pkg/
 
