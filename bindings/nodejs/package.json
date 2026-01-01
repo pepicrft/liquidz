@@ -1,6 +1,6 @@
 {
   "name": "liquidz",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "High-performance Liquid template engine powered by Zig",
   "main": "index.js",
   "types": "index.d.ts",
