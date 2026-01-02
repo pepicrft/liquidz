@@ -733,7 +733,6 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_options: "--allow-empty"
-          tagging_message: ${{ needs.check-release.outputs.next-version }}
           skip_dirty_check: true
           file_pattern: "CHANGELOG.md bindings/*/package.json bindings/*/pyproject.toml bindings/*/mix.exs bindings/*/*.gemspec"
           commit_message: "[Release] liquidz ${{ needs.check-release.outputs.next-version }}"
