@@ -2,6 +2,13 @@
 
 ### Fix
 
+- Enrich release notes with PR metadata
+
+
+**Full Changelog**: https://github.com/pepicrft/liquidz/compare/0.5.4..0.5.5
+
+### Fix
+
 - Avoid duplicate release tag creation
 
 
