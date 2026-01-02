@@ -726,7 +726,8 @@ jobs:
       - name: Update CHANGELOG.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: git cliff --bump -o CHANGELOG.md
+          GITHUB_REPO: ${{ github.repository }}
+        run: git cliff --bump -o CHANGELOG.md --github-repo "$GITHUB_REPO"
 
       - name: Commit changes
         id: auto-commit
@@ -741,9 +742,10 @@ jobs:
         id: release-notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
         run: |
           echo "RELEASE_NOTES<<EOF" >> "$GITHUB_OUTPUT"
-          git cliff --latest >> "$GITHUB_OUTPUT"
+          git cliff --latest --github-repo "$GITHUB_REPO" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
