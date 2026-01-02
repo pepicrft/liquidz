@@ -1,5 +1,19 @@
 
 
+### Fix
+
+- Avoid duplicate release tag creation
+
+
+**Full Changelog**: https://github.com/pepicrft/liquidz/compare/0.5.3..0.5.4
+
+### Fix
+
+- Don't free borrowed string slices in Value.deinit
+
+
+**Full Changelog**: https://github.com/pepicrft/liquidz/compare/0.5.2..0.5.3
+
 ### Docs
 
 - Add language binding examples to README
