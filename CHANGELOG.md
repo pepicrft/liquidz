@@ -1,5 +1,18 @@
 
 
+### Feat
+
+- Adapt test runner for new liquid-spec format by [@pepicrft](https://github.com/pepicrft)
+
+### Fix
+
+- Skip StrictModeTest specs (require Ruby-style error messages) by [@pepicrft](https://github.com/pepicrft)
+- Support recursive hashes and hash-as-key rendering by [@pepicrft](https://github.com/pepicrft)
+- Add missing drop registrations for new liquid-spec format by [@pepicrft](https://github.com/pepicrft)
+
+
+**Full Changelog**: https://github.com/pepicrft/liquidz/compare/0.5.5..0.6.0
+
 ### Fix
 
 - Enrich release notes with PR metadata
