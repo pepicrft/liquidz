@@ -305,6 +305,7 @@ class LiquidSpecTestRunner
     /ErrorHandling/i,         # Ruby error handling specifics
     /disallowed_includes/i,   # Requires filesystem permission system
     /strict2/i,               # Requires strict2 error mode
+    /StrictModeTest/i,        # Requires strict mode with Ruby-style error messages
   ].freeze
 
   def initialize(liquidz_binary, spec_files, options = {})
