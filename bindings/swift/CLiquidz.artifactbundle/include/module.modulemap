@@ -1,0 +1,5 @@
+module CLiquidz {
+    header "include/liquidz.h"
+    link "liquidz_ffi"
+    export *
+}

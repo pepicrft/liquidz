@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "1.0",
+  "artifacts": {
+    "CLiquidz": {
+      "type": "staticLibrary",
+      "version": "VERSION",
+      "variants": [
+        {
+          "path": "x86_64-apple-macosx/libliquidz_ffi.a",
+          "supportedTriples": ["x86_64-apple-macosx"],
+          "headersPath": "include"
+        },
+        {
+          "path": "arm64-apple-macosx/libliquidz_ffi.a",
+          "supportedTriples": ["arm64-apple-macosx"],
+          "headersPath": "include"
+        },
+        {
+          "path": "arm64-apple-ios/libliquidz_ffi.a",
+          "supportedTriples": ["arm64-apple-ios"],
+          "headersPath": "include"
+        },
+        {
+          "path": "arm64-apple-ios-simulator/libliquidz_ffi.a",
+          "supportedTriples": ["arm64-apple-ios-simulator"],
+          "headersPath": "include"
+        },
+        {
+          "path": "x86_64-apple-ios-simulator/libliquidz_ffi.a",
+          "supportedTriples": ["x86_64-apple-ios-simulator"],
+          "headersPath": "include"
+        },
+        {
+          "path": "arm64-apple-tvos/libliquidz_ffi.a",
+          "supportedTriples": ["arm64-apple-tvos"],
+          "headersPath": "include"
+        },
+        {
+          "path": "arm64-apple-tvos-simulator/libliquidz_ffi.a",
+          "supportedTriples": ["arm64-apple-tvos-simulator"],
+          "headersPath": "include"
+        },
+        {
+          "path": "x86_64-apple-tvos-simulator/libliquidz_ffi.a",
+          "supportedTriples": ["x86_64-apple-tvos-simulator"],
+          "headersPath": "include"
+        },
+        {
+          "path": "arm64_32-apple-watchos/libliquidz_ffi.a",
+          "supportedTriples": ["arm64_32-apple-watchos"],
+          "headersPath": "include"
+        },
+        {
+          "path": "arm64-apple-watchos-simulator/libliquidz_ffi.a",
+          "supportedTriples": ["arm64-apple-watchos-simulator"],
+          "headersPath": "include"
+        },
+        {
+          "path": "x86_64-apple-watchos-simulator/libliquidz_ffi.a",
+          "supportedTriples": ["x86_64-apple-watchos-simulator"],
+          "headersPath": "include"
+        },
+        {
+          "path": "arm64-apple-xros/libliquidz_ffi.a",
+          "supportedTriples": ["arm64-apple-xros"],
+          "headersPath": "include"
+        },
+        {
+          "path": "arm64-apple-xros-simulator/libliquidz_ffi.a",
+          "supportedTriples": ["arm64-apple-xros-simulator"],
+          "headersPath": "include"
+        }
+      ]
+    }
+  }
+}

@@ -10,6 +10,7 @@ This directory contains language bindings for the Liquidz Liquid template engine
 | Elixir | `elixir/` | Ready | NIF-based using elixir_make |
 | Ruby | `ruby/` | Ready | C extension |
 | Python | `python/` | Ready | ctypes-based FFI |
+| Swift | `swift/` | Ready | Swift Package Manager binary target |
 
 ## Prerequisites
 
@@ -73,6 +74,23 @@ pytest
 ```python
 from liquidz import render
 print(render("Hello, {{ name }}!", {"name": "World"}))
+```
+
+### Swift
+
+```bash
+cd bindings/swift
+swift test
+```
+
+```swift
+import Liquidz
+
+let output = try Liquidz.render(
+    template: "Hello, {{ name }}!",
+    context: ["name": "World"]
+)
+print(output)
 ```
 
 ## API Summary

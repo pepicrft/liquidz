@@ -182,6 +182,159 @@ jobs:
           if-no-files-found: ignore
 
   # ===========================================================================
+  # Build Swift artifact bundle (all Apple platforms)
+  # ===========================================================================
+  build-swift:
+    name: Build Swift artifact bundle
+    needs: check-release
+    if: needs.check-release.outputs.should-release == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+
+      - name: Build static libraries for all Apple platforms
+        run: |
+          set -euo pipefail
+          bundle_root="dist/CLiquidz.artifactbundle"
+          rm -rf "$bundle_root"
+          mkdir -p "$bundle_root/include"
+
+          cp bindings/swift/CLiquidz.artifactbundle/include/* "$bundle_root/include/"
+
+          build_target() {
+            local zig_target="$1"
+            local bundle_dir="$2"
+            echo "Building for $zig_target -> $bundle_dir"
+            zig build -Doptimize=ReleaseFast -Dtarget="$zig_target"
+            mkdir -p "$bundle_root/$bundle_dir"
+            cp zig-out/lib/libliquidz_ffi.a "$bundle_root/$bundle_dir/libliquidz_ffi.a"
+          }
+
+          # macOS
+          build_target x86_64-macos x86_64-apple-macosx
+          build_target aarch64-macos arm64-apple-macosx
+
+          # iOS
+          build_target aarch64-ios arm64-apple-ios
+          build_target aarch64-ios-simulator arm64-apple-ios-simulator
+          build_target x86_64-ios-simulator x86_64-apple-ios-simulator
+
+          # tvOS
+          build_target aarch64-tvos arm64-apple-tvos
+          build_target aarch64-tvos-simulator arm64-apple-tvos-simulator
+          build_target x86_64-tvos-simulator x86_64-apple-tvos-simulator
+
+          # watchOS
+          build_target arm64_32-watchos arm64_32-apple-watchos
+          build_target aarch64-watchos-simulator arm64-apple-watchos-simulator
+          build_target x86_64-watchos-simulator x86_64-apple-watchos-simulator
+
+          # visionOS (xros)
+          build_target aarch64-visionos arm64-apple-xros
+          build_target aarch64-visionos-simulator arm64-apple-xros-simulator
+
+          cat > "$bundle_root/Info.json" <<'EOF'
+          {
+            "schemaVersion": "1.0",
+            "artifacts": {
+              "CLiquidz": {
+                "type": "staticLibrary",
+                "version": "${{ needs.check-release.outputs.next-version }}",
+                "variants": [
+                  {
+                    "path": "x86_64-apple-macosx/libliquidz_ffi.a",
+                    "supportedTriples": ["x86_64-apple-macosx"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "arm64-apple-macosx/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64-apple-macosx"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "arm64-apple-ios/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64-apple-ios"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "arm64-apple-ios-simulator/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64-apple-ios-simulator"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "x86_64-apple-ios-simulator/libliquidz_ffi.a",
+                    "supportedTriples": ["x86_64-apple-ios-simulator"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "arm64-apple-tvos/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64-apple-tvos"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "arm64-apple-tvos-simulator/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64-apple-tvos-simulator"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "x86_64-apple-tvos-simulator/libliquidz_ffi.a",
+                    "supportedTriples": ["x86_64-apple-tvos-simulator"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "arm64_32-apple-watchos/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64_32-apple-watchos"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "arm64-apple-watchos-simulator/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64-apple-watchos-simulator"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "x86_64-apple-watchos-simulator/libliquidz_ffi.a",
+                    "supportedTriples": ["x86_64-apple-watchos-simulator"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "arm64-apple-xros/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64-apple-xros"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "arm64-apple-xros-simulator/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64-apple-xros-simulator"],
+                    "headersPath": "include"
+                  }
+                ]
+              }
+            }
+          }
+          EOF
+          # Replace the version placeholder
+          sed -i '' "s/\${{ needs.check-release.outputs.next-version }}/${{ needs.check-release.outputs.next-version }}/g" "$bundle_root/Info.json"
+
+      - name: Build Swift package (verify all platforms)
+        run: |
+          rm -rf bindings/swift/CLiquidz.artifactbundle
+          cp -R dist/CLiquidz.artifactbundle bindings/swift/CLiquidz.artifactbundle
+          # Build for macOS to verify
+          LIQUIDZ_USE_LOCAL_ARTIFACT_BUNDLE=1 swift build --package-path bindings/swift
+
+      - name: Package artifact bundle
+        run: |
+          cd dist
+          zip -r liquidz.artifactbundle.zip CLiquidz.artifactbundle
+
+      - name: Upload artifact bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: liquidz-artifactbundle
+          path: dist/liquidz.artifactbundle.zip
+
+  # ===========================================================================
   # Build Node.js prebuilt binaries
   # ===========================================================================
   build-nodejs:
@@ -461,6 +614,7 @@ jobs:
       - check-release
       - build-executables
       - build-libraries
+      - build-swift
       - build-nodejs
       - build-python
       - build-ruby
@@ -512,6 +666,22 @@ jobs:
           cd release
           sha256sum * > sha256.txt 2>/dev/null || true
           sha512sum * > sha512.txt 2>/dev/null || true
+
+      # -------------------------------------------------------------------------
+      # Prepare Swift package (update binary target checksum)
+      # -------------------------------------------------------------------------
+      - name: Prepare Swift package
+        run: |
+          ARTIFACT_ZIP="artifacts/liquidz-artifactbundle/liquidz.artifactbundle.zip"
+          if [ -f "$ARTIFACT_ZIP" ]; then
+            CHECKSUM=$(shasum -a 256 "$ARTIFACT_ZIP" | awk '{print $1}')
+            sed -i "s/let artifactVersion = \".*\"/let artifactVersion = \"${{ needs.check-release.outputs.next-version }}\"/" bindings/swift/Package.swift 2>/dev/null || \
+            sed -i '' "s/let artifactVersion = \".*\"/let artifactVersion = \"${{ needs.check-release.outputs.next-version }}\"/" bindings/swift/Package.swift
+            sed -i "s/let artifactChecksum = \".*\"/let artifactChecksum = \"$CHECKSUM\"/" bindings/swift/Package.swift 2>/dev/null || \
+            sed -i '' "s/let artifactChecksum = \".*\"/let artifactChecksum = \"$CHECKSUM\"/" bindings/swift/Package.swift
+          else
+            echo "Artifact bundle not found at $ARTIFACT_ZIP"
+          fi
 
       # -------------------------------------------------------------------------
       # Prepare Node.js package with prebuilds and WASM
@@ -735,7 +905,7 @@ jobs:
         with:
           commit_options: "--allow-empty"
           skip_dirty_check: true
-          file_pattern: "CHANGELOG.md bindings/*/package.json bindings/*/pyproject.toml bindings/*/mix.exs bindings/*/*.gemspec"
+          file_pattern: "CHANGELOG.md bindings/*/package.json bindings/*/pyproject.toml bindings/*/mix.exs bindings/*/*.gemspec bindings/swift/Package.swift"
           commit_message: "[Release] liquidz ${{ needs.check-release.outputs.next-version }}"
 
       - name: Get release notes
