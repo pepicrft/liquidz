@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.0",
+  "artifacts": {
+    "CLiquidz": {
+      "type": "staticLibrary",
+      "version": "VERSION",
+      "variants": [
+        {
+          "path": "x86_64-apple-macosx/libliquidz_ffi.a",
+          "supportedTriples": ["x86_64-apple-macosx"],
+          "headersPath": "include"
+        },
+        {
+          "path": "arm64-apple-macosx/libliquidz_ffi.a",
+          "supportedTriples": ["arm64-apple-macosx"],
+          "headersPath": "include"
+        }
+      ]
+    }
+  }
+}
