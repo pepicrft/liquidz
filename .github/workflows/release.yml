@@ -182,7 +182,7 @@ jobs:
           if-no-files-found: ignore
 
   # ===========================================================================
-  # Build Swift artifact bundle
+  # Build Swift artifact bundle (all Apple platforms)
   # ===========================================================================
   build-swift:
     name: Build Swift artifact bundle
@@ -194,7 +194,7 @@ jobs:
 
       - uses: jdx/mise-action@v2
 
-      - name: Build macOS static libraries
+      - name: Build static libraries for all Apple platforms
         run: |
           set -euo pipefail
           bundle_root="dist/CLiquidz.artifactbundle"
@@ -206,15 +206,36 @@ jobs:
           build_target() {
             local zig_target="$1"
             local bundle_dir="$2"
+            echo "Building for $zig_target -> $bundle_dir"
             zig build -Doptimize=ReleaseFast -Dtarget="$zig_target"
             mkdir -p "$bundle_root/$bundle_dir"
             cp zig-out/lib/libliquidz_ffi.a "$bundle_root/$bundle_dir/libliquidz_ffi.a"
           }
 
+          # macOS
           build_target x86_64-macos x86_64-apple-macosx
           build_target aarch64-macos arm64-apple-macosx
 
-          cat > "$bundle_root/Info.json" <<EOF
+          # iOS
+          build_target aarch64-ios arm64-apple-ios
+          build_target aarch64-ios-simulator arm64-apple-ios-simulator
+          build_target x86_64-ios-simulator x86_64-apple-ios-simulator
+
+          # tvOS
+          build_target aarch64-tvos arm64-apple-tvos
+          build_target aarch64-tvos-simulator arm64-apple-tvos-simulator
+          build_target x86_64-tvos-simulator x86_64-apple-tvos-simulator
+
+          # watchOS
+          build_target arm64_32-watchos arm64_32-apple-watchos
+          build_target aarch64-watchos-simulator arm64-apple-watchos-simulator
+          build_target x86_64-watchos-simulator x86_64-apple-watchos-simulator
+
+          # visionOS (xros)
+          build_target aarch64-visionos arm64-apple-xros
+          build_target aarch64-visionos-simulator arm64-apple-xros-simulator
+
+          cat > "$bundle_root/Info.json" <<'EOF'
           {
             "schemaVersion": "1.0",
             "artifacts": {
@@ -231,17 +252,75 @@ jobs:
                     "path": "arm64-apple-macosx/libliquidz_ffi.a",
                     "supportedTriples": ["arm64-apple-macosx"],
                     "headersPath": "include"
+                  },
+                  {
+                    "path": "arm64-apple-ios/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64-apple-ios"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "arm64-apple-ios-simulator/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64-apple-ios-simulator"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "x86_64-apple-ios-simulator/libliquidz_ffi.a",
+                    "supportedTriples": ["x86_64-apple-ios-simulator"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "arm64-apple-tvos/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64-apple-tvos"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "arm64-apple-tvos-simulator/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64-apple-tvos-simulator"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "x86_64-apple-tvos-simulator/libliquidz_ffi.a",
+                    "supportedTriples": ["x86_64-apple-tvos-simulator"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "arm64_32-apple-watchos/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64_32-apple-watchos"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "arm64-apple-watchos-simulator/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64-apple-watchos-simulator"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "x86_64-apple-watchos-simulator/libliquidz_ffi.a",
+                    "supportedTriples": ["x86_64-apple-watchos-simulator"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "arm64-apple-xros/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64-apple-xros"],
+                    "headersPath": "include"
+                  },
+                  {
+                    "path": "arm64-apple-xros-simulator/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64-apple-xros-simulator"],
+                    "headersPath": "include"
                   }
                 ]
               }
             }
           }
           EOF
+          # Replace the version placeholder
+          sed -i '' "s/\${{ needs.check-release.outputs.next-version }}/${{ needs.check-release.outputs.next-version }}/g" "$bundle_root/Info.json"
 
-      - name: Build Swift package
+      - name: Build Swift package (verify all platforms)
         run: |
           rm -rf bindings/swift/CLiquidz.artifactbundle
           cp -R dist/CLiquidz.artifactbundle bindings/swift/CLiquidz.artifactbundle
+          # Build for macOS to verify
           LIQUIDZ_USE_LOCAL_ARTIFACT_BUNDLE=1 swift build --package-path bindings/swift
 
       - name: Package artifact bundle

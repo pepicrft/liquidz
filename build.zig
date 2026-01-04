@@ -14,9 +14,15 @@ pub fn build(b: *std.Build) void {
     // Check if we're building for WASM
     const is_wasm = target.result.cpu.arch == .wasm32 or target.result.cpu.arch == .wasm64;
 
-    // Executable (skip for WASM)
+    // Check if we're building for Apple embedded platforms (no executables allowed)
+    const is_apple_embedded = target.result.os.tag == .ios or
+        target.result.os.tag == .tvos or
+        target.result.os.tag == .watchos or
+        target.result.os.tag == .visionos;
+
+    // Executable (skip for WASM and Apple embedded platforms)
     var exe: ?*std.Build.Step.Compile = null;
-    if (!is_wasm and target.result.os.tag != .freestanding) {
+    if (!is_wasm and !is_apple_embedded and target.result.os.tag != .freestanding) {
         const exe_val = b.addExecutable(.{
             .name = "liquidz",
             .root_module = b.createModule(.{
@@ -32,7 +38,7 @@ pub fn build(b: *std.Build) void {
         exe = exe_val;
     }
 
-    // Check if we're building for a non-WASM native target (skip FFI for WASM targets)
+    // Check if we're building for a target that supports FFI (skip for WASM)
     const is_native_compatible = !is_wasm and target.result.os.tag != .freestanding;
 
     // C ABI static library for Ruby/Node.js/Elixir integration (skip for WASM)
@@ -84,8 +90,8 @@ pub fn build(b: *std.Build) void {
         run_step.dependOn(&run_cmd.step);
     }
 
-    // Benchmark executable (skip for WASM)
-    if (is_native_compatible) {
+    // Benchmark executable (skip for WASM and Apple embedded platforms)
+    if (is_native_compatible and !is_apple_embedded) {
         const bench_exe = b.addExecutable(.{
             .name = "bench",
             .root_module = b.createModule(.{
