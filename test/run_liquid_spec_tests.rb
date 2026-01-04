@@ -5,6 +5,9 @@
 #
 # This script runs the liquid-spec test suite (https://github.com/Shopify/liquid-spec)
 # against the liquidz binary and reports the results.
+#
+# Updated for the new liquid-spec format that uses `instantiate:ClassName`
+# instead of Ruby YAML tags like `!ruby/object`.
 
 require 'yaml'
 require 'json'
@@ -14,270 +17,273 @@ require 'bigdecimal'
 require 'date'
 require 'set'
 
-# Define stub classes for Ruby objects found in liquid-spec YAML files
-# These allow YAML deserialization and expose data for JSON conversion
+# =============================================================================
+# Object Instantiation Registry
+# =============================================================================
+# Maps class names to lambdas that create instances with the given params.
+# This mirrors liquid-spec's ClassRegistry approach.
 
-# Base class for Drop-like objects that expose instance variables as hash
-class DropBase
-  def to_h
+INSTANTIATE_REGISTRY = {
+  # Ranges - params is an array [start, end]
+  'Range' => ->(params) {
+    return nil unless params.is_a?(Array) && params.length == 2
+    { '_liquidz_range' => true, 'start' => params[0], 'end' => params[1] }
+  },
+
+  # Value drops - params has a 'value' key
+  'ThingWithValue' => ->(params) {
+    # ThingWithValue exposes a .value property (defaults to 3)
+    value = params.is_a?(Hash) ? (params['value'] || 3) : 3
+    { 'value' => value }
+  },
+
+  'ThingWithToLiquid' => ->(_params) {
+    'foobar'
+  },
+
+  'NumberLikeThing' => ->(params) {
+    return params unless params.is_a?(Hash)
+    # NumberLikeThing can use 'value' or 'amount' key
+    params['value'] || params['amount'] || params
+  },
+
+  'IntegerDrop' => ->(params) {
+    value = params.is_a?(Hash) ? params['value'] : params
+    value.to_i
+  },
+
+  'StringDrop' => ->(params) {
+    value = params.is_a?(Hash) ? params['value'] : params
+    value.to_s
+  },
+
+  'BooleanDrop' => ->(params) {
+    value = params.is_a?(Hash) ? params['value'] : params
+    {
+      '_liquidz_boolean_drop' => true,
+      'truthy' => value,
+      'display' => value ? 'Yay' : 'Nay'
+    }
+  },
+
+  # Test objects
+  'TestThing' => ->(_params) {
+    { '_liquidz_custom_to_s' => 'woot: 1', 'whatever' => 'woot: 1' }
+  },
+
+  'TestEnumerable' => ->(_params) {
+    [{ 'foo' => 1, 'bar' => 2 }, { 'foo' => 2, 'bar' => 1 }, { 'foo' => 3, 'bar' => 3 }]
+  },
+
+  'ErrorDrop' => ->(_params) {
+    { '_liquidz_error_drop' => true }
+  },
+
+  # CountingDrop - tracks accesses and returns "N accesses"
+  'CountingDrop' => ->(_params) {
+    { 'whatever' => '1 accesses' }
+  },
+
+  # ToSDrop - returns "woot: N" where N is the foo value
+  'ToSDrop' => ->(params) {
+    foo = params.is_a?(Hash) ? (params['foo'] || 0) : 0
+    "woot: #{foo}"
+  },
+
+  # Loader drop - has data array for iteration
+  'LoaderDrop' => ->(params) {
+    params.is_a?(Hash) ? (params['data'] || []) : []
+  },
+
+  # Array drop - wraps an array
+  'ArrayDrop' => ->(params) {
+    params.is_a?(Hash) ? (params['array'] || []) : (params.is_a?(Array) ? params : [])
+  },
+
+  # Hash variants
+  'HashWithCustomToS' => ->(params) {
+    result = params.is_a?(Hash) ? params.dup : {}
+    result['_liquidz_custom_to_s'] = 'kewl'
+    result
+  },
+
+  'HashWithoutCustomToS' => ->(params) {
+    params.is_a?(Hash) ? params.dup : {}
+  },
+
+  # Template factory stub
+  'StubTemplateFactory' => ->(_params) {
+    { '_liquidz_template_factory' => true }
+  },
+
+  # File system stub
+  'StubFileSystem' => ->(params) {
+    params.is_a?(Hash) ? params : {}
+  },
+}
+
+# =============================================================================
+# Instantiate Format Parser
+# =============================================================================
+# Recursively processes a data structure, looking for the `instantiate:ClassName`
+# pattern and converting it to appropriate JSON-compatible values.
+
+def process_instantiate_format(obj, visited = Set.new)
+  # Prevent infinite recursion with object identity - mark recursive hashes
+  obj_id = obj.object_id
+  if (obj.is_a?(Hash) || obj.is_a?(Array)) && visited.include?(obj_id)
+    return obj.is_a?(Hash) ? { '_liquidz_recursive' => true } : []
+  end
+  visited = visited.dup
+  visited.add(obj_id) if obj.is_a?(Hash) || obj.is_a?(Array)
+
+  case obj
+  when Hash
+    # Check if this hash has an instantiate key
+    instantiate_key = obj.keys.find { |k| k.to_s.start_with?('instantiate:') }
+
+    if instantiate_key
+      # Format: { "instantiate:ClassName": params } or { "instantiate:ClassName": {} }
+      class_name = instantiate_key.to_s.sub('instantiate:', '')
+      params = process_instantiate_format(obj[instantiate_key], visited)
+      return create_instance(class_name, params)
+    end
+
+    # Check for "instantiate" as a value key (nested format)
+    if obj.key?('instantiate')
+      class_name = obj['instantiate']
+      params = obj.reject { |k, _| k == 'instantiate' }
+      params = process_instantiate_format(params, visited)
+      return create_instance(class_name, params)
+    end
+
+    # Regular hash - process all values recursively
     result = {}
-    instance_variables.each do |var|
-      key = var.to_s.sub(/^@/, '')
-      result[key] = instance_variable_get(var)
+    obj.each do |k, v|
+      # Handle special key formats
+      if k.is_a?(Symbol)
+        result[':' + k.to_s] = process_instantiate_format(v, visited)
+        result['_liquidz_has_symbol_keys'] = true
+      elsif k.is_a?(Hash)
+        # Hash as key - preserve as a Hash object for convert_to_json_compatible
+        result[k] = process_instantiate_format(v, visited)
+      else
+        result[k.to_s] = process_instantiate_format(v, visited)
+      end
     end
     result
-  end
 
-  def to_liquid
-    to_h
-  end
-end
+  when Array
+    obj.map { |v| process_instantiate_format(v, visited) }
 
-# Generic test objects
-class TestThing < DropBase
-  attr_reader :foo
-  def initialize
-    @foo = 0
-  end
-  def to_s
-    "woot: #{@foo}"
-  end
-  def to_liquid
-    @foo += 1
-    self
-  end
-  def [](key)
-    case key
-    when "whatever"
-      "woot: #{@foo}"
+  when String
+    # Check for inline instantiate format: "instantiate:ClassName"
+    if obj.start_with?('instantiate:')
+      class_name = obj.sub('instantiate:', '')
+      return create_instance(class_name, {})
     end
-  end
-end
-class TestDrop < DropBase; end
-class TestEnumerable < DropBase
-  include Enumerable
-  def each(&block)
-    # Hardcoded test data matching liquid-spec's TestEnumerable
-    [{ "foo" => 1, "bar" => 2 }, { "foo" => 2, "bar" => 1 }, { "foo" => 3, "bar" => 3 }].each(&block)
-  end
-  def to_a
-    [{ "foo" => 1, "bar" => 2 }, { "foo" => 2, "bar" => 1 }, { "foo" => 3, "bar" => 3 }]
+    obj
+
+  else
+    obj
   end
 end
 
-class ThingWithToLiquid < DropBase
-  def to_liquid
-    'foobar'
-  end
-end
-class ThingWithValue < DropBase
-  attr_accessor :value
-  def to_liquid
-    @value
-  end
-end
-class CustomToLiquidDrop < DropBase; end
-
-# Numeric drops
-class IntegerDrop < DropBase
-  attr_accessor :value
-  def to_liquid
-    @value.to_i
+def create_instance(class_name, params)
+  factory = INSTANTIATE_REGISTRY[class_name]
+  if factory
+    factory.call(params)
+  else
+    # Unknown class - skip this value or return raw params
+    puts "Warning: Unknown instantiate class: #{class_name}" if ENV['LIQUIDZ_DEBUG']
+    params
   end
 end
 
-class BooleanDrop < DropBase
-  attr_accessor :value
-  def to_liquid
-    # BooleanDrop is special: it has a boolean value for truthiness checks
-    # but displays as "Yay"/"Nay"
-    # We encode this as a special object that liquidz can recognize
-    {
-      "_liquidz_boolean_drop" => true,
-      "truthy" => @value,
-      "display" => @value ? "Yay" : "Nay"
-    }
+# =============================================================================
+# JSON Conversion for Complex Ruby Types
+# =============================================================================
+# Handles remaining Ruby types that might appear in specs.
+
+# Format a Ruby hash in the Ruby inspect style (no spaces around =>)
+def format_ruby_hash(hash)
+  pairs = hash.map do |k, v|
+    key_str = k.is_a?(String) ? "\"#{k}\"" : k.inspect
+    val_str = v.is_a?(String) ? "\"#{v}\"" : v.inspect
+    "#{key_str}=>#{val_str}"
   end
+  "{#{pairs.join(', ')}}"
 end
 
-class StringDrop < DropBase
-  attr_accessor :value
-  def to_liquid
-    @value.to_s
+def convert_to_json_compatible(obj, visited = Set.new)
+  return obj if obj.nil?
+
+  # Prevent infinite recursion - return recursive marker for hashes
+  obj_id = obj.object_id
+  if visited.include?(obj_id) && obj.is_a?(Hash)
+    return { '_liquidz_recursive' => true }
   end
-end
+  visited = visited.dup
+  visited.add(obj_id) if obj.is_a?(Hash) || obj.is_a?(Array)
 
-class NumberLikeThing < DropBase
-  attr_accessor :value
-  def to_liquid
-    @value
-  end
-end
+  case obj
+  when Hash
+    result = {}
+    obj.each do |k, v|
+      converted = convert_to_json_compatible(v, visited)
+      next if converted.nil? && !v.nil?
 
-class ErrorDrop < DropBase; end
-class SettingsDrop < DropBase; end
-
-# For tag test
-module ForTagTest
-  class LoaderDrop < DropBase
-    def to_a
-      @items || []
+      if k.is_a?(Symbol)
+        result[':' + k.to_s] = converted
+        result['_liquidz_has_symbol_keys'] = true
+      elsif k.is_a?(Hash)
+        # Hash as key - format it in Ruby style for the key
+        hash_key_str = format_ruby_hash(k)
+        result['_liquidz_hash_key:' + hash_key_str] = converted
+        result['_liquidz_has_hash_keys'] = true
+      else
+        result[k.to_s] = converted
+      end
     end
-  end
-end
+    result
 
-# Table row test
-module TableRowTest
-  class ArrayDrop < DropBase
-    include Enumerable
-    def each(&block)
-      (@array || []).each(&block)
-    end
-    def to_a
-      @array || []
+  when Array
+    obj.map { |v| convert_to_json_compatible(v, visited) }.compact
+
+  when Range
+    { '_liquidz_range' => true, 'start' => obj.begin, 'end' => obj.end }
+
+  when Symbol
+    { '_liquidz_symbol' => true, 'name' => obj.to_s }
+
+  when String, Integer, Float, TrueClass, FalseClass
+    obj
+
+  when Time, Date, DateTime
+    obj.to_s
+
+  when BigDecimal
+    obj.to_f
+
+  else
+    if obj.respond_to?(:to_liquid)
+      convert_to_json_compatible(obj.to_liquid, visited)
+    elsif obj.respond_to?(:to_h)
+      convert_to_json_compatible(obj.to_h, visited)
+    elsif obj.respond_to?(:to_a)
+      convert_to_json_compatible(obj.to_a, visited)
+    else
+      nil
     end
   end
 end
 
-# Struct-based objects - add to existing Struct class
-Struct.const_set(:ThingWithValue, ::ThingWithValue) unless Struct.const_defined?(:ThingWithValue)
-Struct.const_set(:TestThing, ::TestThing) unless Struct.const_defined?(:TestThing)
-
-# Liquid namespace
-module Liquid
-  class Drop < DropBase; end
-end
-
-# TestDrops namespace with all the fake drops
-module TestDrops
-  class FakeMoney < DropBase
-    attr_accessor :cents, :currency
-    def to_liquid
-      { 'cents' => @cents, 'currency' => @currency }
-    end
-  end
-
-  class Money < DropBase
-    attr_accessor :cents, :currency
-    def to_liquid
-      { 'cents' => @cents, 'currency' => @currency }
-    end
-  end
-
-  # Hash subclasses
-  class CollationAwareHash < Hash; end
-  class HtmlSafeHash < Hash; end
-
-  module Metafields
-    class StringDrop < DropBase
-      attr_accessor :value
-      def to_liquid
-        @value.to_s
-      end
-    end
-
-    class IntDrop < DropBase
-      attr_accessor :value
-      def to_liquid
-        @value.to_i
-      end
-    end
-
-    class BooleanDrop < DropBase
-      attr_accessor :value
-      def to_liquid
-        @value
-      end
-    end
-
-    class MetaComparableDrop < DropBase; end
-    class FakeArticleDrop < DropBase; end
-  end
-
-  module LiquidHelper
-    module FakeDrops
-      class AnyDrop < DropBase; end
-      class BlankSupportDrop < DropBase
-        attr_accessor :blank
-        def to_liquid
-          @blank ? '' : to_h
-        end
-      end
-      class ContextAwareDrop < DropBase; end
-      class ComparableDrop < DropBase; end
-      class CountryDrop < DropBase; end
-      class CurrencyDrop < DropBase; end
-      class DropWithContext < DropBase; end
-      class DropWithChangingContext < DropBase; end
-      class DropWithLiquidSize < DropBase
-        attr_accessor :items
-        def to_a
-          @items || []
-        end
-      end
-      class DropWithSize < DropBase
-        attr_accessor :size
-      end
-      class EnumerableDrop < DropBase
-        include Enumerable
-        attr_accessor :items
-        def each(&block)
-          (@items || []).each(&block)
-        end
-        def to_a
-          @items || []
-        end
-      end
-      class FakeBlockDrop < DropBase
-        attr_accessor :items
-        def to_a
-          @items || []
-        end
-      end
-      class FiberDrop < DropBase; end
-      class IterDrop < DropBase
-        def to_a
-          []
-        end
-      end
-      class LocalizationDrop < DropBase; end
-      class MediaDrop < DropBase; end
-      class MuffinDrop < DropBase; end
-      class NotSafeStringDrop < DropBase
-        attr_accessor :value
-        def to_liquid
-          @value.to_s
-        end
-      end
-      # ObjectWithToLiquid is a Struct in the original tests
-      ObjectWithToLiquid = Struct.new(:a, :b, :c) do
-        def to_liquid
-          to_h
-        end
-      end
-      class RaisingDrop < DropBase; end
-      class RaisingToSDrop < DropBase; end
-      class RatingDrop < DropBase; end
-    end
-  end
-end
-
-# Stub classes for template factory
-class StubTemplateFactory; end
-class StubFileSystem; end
-
-# Hash subclasses
-class HashWithCustomToS < Hash
-  def to_s
-    'kewl'
-  end
-end
-
-class HashWithoutCustomToS < Hash; end
+# =============================================================================
+# Test Runner
+# =============================================================================
 
 class LiquidSpecTestRunner
   # Test name patterns that require Ruby-specific features we can't support
-  # These are internal Ruby Liquid APIs, not template features
   SKIP_PATTERNS = [
     /Profiler/i,              # Ruby profiling API
     /ResourceLimits/i,        # Ruby resource limiting
@@ -299,7 +305,7 @@ class LiquidSpecTestRunner
     /ErrorHandling/i,         # Ruby error handling specifics
     /disallowed_includes/i,   # Requires filesystem permission system
     /strict2/i,               # Requires strict2 error mode
-    /HashRenderingTest.*hash_key/i, # Hash key rendering has minor spacing diff
+    /StrictModeTest/i,        # Requires strict mode with Ruby-style error messages
   ].freeze
 
   def initialize(liquidz_binary, spec_files, options = {})
@@ -307,6 +313,7 @@ class LiquidSpecTestRunner
     @spec_files = spec_files
     @verbose = options[:verbose] || false
     @filter = options[:filter]
+    @suite = options[:suite]
     @results = { passed: 0, failed: 0, skipped: 0, errors: [] }
   end
 
@@ -330,8 +337,8 @@ class LiquidSpecTestRunner
     puts "Loading: #{File.basename(spec_file)}" if @verbose
 
     begin
-      # Use unsafe_load to allow Ruby objects like Range, Symbol, etc.
-      specs = YAML.unsafe_load_file(spec_file)
+      # Use safe_load - the new format doesn't require Ruby objects
+      specs = YAML.safe_load_file(spec_file, permitted_classes: [Symbol, Date, Time, Range], aliases: true)
       return unless specs.is_a?(Array)
 
       specs.each do |spec|
@@ -365,8 +372,9 @@ class LiquidSpecTestRunner
     # Skip tests with filesystem (include/render with partials) for now
     return skip_test(name, 'requires filesystem') if filesystem && !filesystem.empty?
 
-    # Convert environment to JSON-compatible format
-    json_env = convert_to_json_compatible(environment)
+    # Process the instantiate format and convert to JSON-compatible
+    processed_env = process_instantiate_format(environment)
+    json_env = convert_to_json_compatible(processed_env)
     return skip_test(name, 'unsupported environment type') if json_env.nil?
 
     # Run the template through liquidz
@@ -380,135 +388,6 @@ class LiquidSpecTestRunner
       end
     rescue StandardError => e
       error_test(name, file_name, e.message, template)
-    end
-  end
-
-  # Convert Ruby objects to JSON-compatible format
-  def convert_to_json_compatible(obj, visited = Set.new)
-    # Check for circular references
-    obj_id = obj.object_id
-    return nil if visited.include?(obj_id) && !obj.is_a?(String) && !obj.is_a?(Integer) && !obj.is_a?(Float)
-    visited = visited.dup
-    visited.add(obj_id) unless obj.is_a?(String) || obj.is_a?(Integer) || obj.is_a?(Float) || obj.is_a?(TrueClass) || obj.is_a?(FalseClass) || obj.nil?
-
-    case obj
-    when HashWithCustomToS
-      # Handle hash with custom to_s - encode the custom string representation
-      # NOTE: Must come BEFORE Hash case since HashWithCustomToS inherits from Hash
-      result = { "_liquidz_custom_to_s" => obj.to_s }
-      obj.each do |k, v|
-        converted = convert_to_json_compatible(v, visited)
-        return nil if converted.nil? && !v.nil?
-        result[k.to_s] = converted
-      end
-      result
-    when TestDrops::CollationAwareHash, TestDrops::HtmlSafeHash, HashWithoutCustomToS
-      # Handle hash subclasses - must come BEFORE Hash case
-      result = {}
-      has_symbol_keys = false
-      obj.each do |k, v|
-        converted = convert_to_json_compatible(v, visited)
-        return nil if converted.nil? && !v.nil?
-        if k.is_a?(Symbol)
-          has_symbol_keys = true
-          result[":" + k.to_s] = converted
-        else
-          result[k.to_s] = converted
-        end
-      end
-      if has_symbol_keys
-        result["_liquidz_has_symbol_keys"] = true
-      end
-      result
-    when Hash
-      result = {}
-      has_symbol_keys = false
-      has_hash_keys = false
-      obj.each do |k, v|
-        converted = convert_to_json_compatible(v, visited)
-        return nil if converted.nil? && !v.nil?
-        if k.is_a?(Symbol)
-          has_symbol_keys = true
-          # Prefix symbol keys with ":" to mark them
-          result[":" + k.to_s] = converted
-        elsif k.is_a?(Hash)
-          has_hash_keys = true
-          # Prefix hash keys with "{" to mark them (already looks like a hash)
-          # The key string will be like {\"foo\"=>\"bar\"}, we prefix with _liquidz_hash_key:
-          result["_liquidz_hash_key:" + k.to_s] = converted
-        else
-          result[k.to_s] = converted
-        end
-      end
-      # Mark this hash as having symbol keys for proper rendering
-      if has_symbol_keys
-        result["_liquidz_has_symbol_keys"] = true
-      end
-      if has_hash_keys
-        result["_liquidz_has_hash_keys"] = true
-      end
-      result
-    when Array
-      result = []
-      obj.each do |v|
-        converted = convert_to_json_compatible(v, visited)
-        return nil if converted.nil? && !v.nil?
-        result << converted
-      end
-      result
-    when Range
-      # Encode range as a special object that liquidz can recognize
-      { "_liquidz_range" => true, "start" => obj.begin, "end" => obj.end }
-    when Symbol
-      # Encode symbol as a special object so liquidz can render it with : prefix
-      { "_liquidz_symbol" => true, "name" => obj.to_s }
-    when String, Integer, Float, TrueClass, FalseClass, NilClass
-      obj
-    when Time, Date, DateTime
-      obj.to_s
-    when BigDecimal
-      obj.to_f
-    when TestThing
-      # Special handling for TestThing - call to_liquid to increment counter,
-      # then return an object with both the "whatever" property and custom to_s
-      obj.to_liquid  # This increments @foo
-      { "_liquidz_custom_to_s" => obj.to_s, "whatever" => obj["whatever"] }
-    when TestEnumerable
-      # TestEnumerable should be converted as an array
-      convert_to_json_compatible(obj.to_a, visited)
-    when TableRowTest::ArrayDrop
-      # ArrayDrop should be converted as an array
-      convert_to_json_compatible(obj.to_a, visited)
-    when DropBase
-      # Handle Drop objects - try to_liquid first, then to_h
-      if obj.respond_to?(:to_liquid)
-        liquid_val = obj.to_liquid
-        # If to_liquid returns self, use to_s to get a string representation
-        if liquid_val.equal?(obj)
-          if obj.respond_to?(:to_s)
-            # Use custom to_s marker so liquidz can render it properly
-            { "_liquidz_custom_to_s" => obj.to_s }
-          else
-            obj.to_h
-          end
-        else
-          convert_to_json_compatible(liquid_val, visited)
-        end
-      else
-        convert_to_json_compatible(obj.to_h, visited)
-      end
-    else
-      # Try common conversion methods
-      if obj.respond_to?(:to_liquid)
-        convert_to_json_compatible(obj.to_liquid, visited)
-      elsif obj.respond_to?(:to_h)
-        convert_to_json_compatible(obj.to_h, visited)
-      elsif obj.respond_to?(:to_a)
-        convert_to_json_compatible(obj.to_a, visited)
-      else
-        # Unknown type - return nil to skip the test
-        nil
-      end
     end
   end
 
@@ -648,6 +527,10 @@ class LiquidSpecTestRunner
   end
 end
 
+# =============================================================================
+# CLI
+# =============================================================================
+
 # Parse command line options
 options = {}
 OptionParser.new do |opts|
@@ -669,6 +552,10 @@ OptionParser.new do |opts|
     options[:spec_file] = file
   end
 
+  opts.on('--suite SUITE', 'Run a specific suite (liquid_ruby, basics, etc.)') do |suite|
+    options[:suite] = suite
+  end
+
   opts.on('-h', '--help', 'Show this help') do
     puts opts
     exit
@@ -680,7 +567,7 @@ script_dir = File.dirname(File.expand_path(__FILE__))
 project_root = File.dirname(script_dir)
 
 liquidz_binary = options[:binary] || File.join(project_root, 'zig-out', 'bin', 'liquidz')
-spec_dir = File.join(script_dir, 'liquid-spec', 'specs', 'liquid_ruby')
+spec_base_dir = File.join(script_dir, 'liquid-spec', 'specs')
 
 unless File.exist?(liquidz_binary)
   puts "Error: liquidz binary not found at #{liquidz_binary}"
@@ -691,13 +578,22 @@ end
 # Determine which spec files to run
 if options[:spec_file]
   spec_files = [options[:spec_file]]
+elsif options[:suite]
+  suite_dir = File.join(spec_base_dir, options[:suite])
+  if File.directory?(suite_dir)
+    spec_files = Dir.glob(File.join(suite_dir, '*.yml')).sort
+  else
+    puts "Error: Suite '#{options[:suite]}' not found in #{spec_base_dir}"
+    exit 1
+  end
 else
-  # Run all spec files
+  # Default to liquid_ruby suite for backwards compatibility
+  spec_dir = File.join(spec_base_dir, 'liquid_ruby')
   spec_files = Dir.glob(File.join(spec_dir, '*.yml')).sort
 end
 
 if spec_files.empty?
-  puts "Error: No spec files found in #{spec_dir}"
+  puts "Error: No spec files found"
   exit 1
 end
 

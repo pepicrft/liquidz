@@ -363,6 +363,10 @@ pub const Value = union(enum) {
                 return result.toOwnedSlice(allocator);
             },
             .object => |obj| {
+                // Check for recursive hash marker
+                if (obj.map.get("_liquidz_recursive")) |_| {
+                    return try allocator.dupe(u8, "{...}");
+                }
                 // Check for custom to_s (hash with custom string representation)
                 if (obj.map.get("_liquidz_custom_to_s")) |custom_to_s| {
                     if (custom_to_s == .string) {
