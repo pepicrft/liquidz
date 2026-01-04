@@ -32,8 +32,9 @@ INSTANTIATE_REGISTRY = {
 
   # Value drops - params has a 'value' key
   'ThingWithValue' => ->(params) {
+    # ThingWithValue exposes a .value property (defaults to 3)
     value = params.is_a?(Hash) ? (params['value'] || 3) : 3
-    value
+    { 'value' => value }
   },
 
   'ThingWithToLiquid' => ->(_params) {
@@ -41,7 +42,9 @@ INSTANTIATE_REGISTRY = {
   },
 
   'NumberLikeThing' => ->(params) {
-    params.is_a?(Hash) ? params['value'] : params
+    return params unless params.is_a?(Hash)
+    # NumberLikeThing can use 'value' or 'amount' key
+    params['value'] || params['amount'] || params
   },
 
   'IntegerDrop' => ->(params) {
@@ -74,6 +77,17 @@ INSTANTIATE_REGISTRY = {
 
   'ErrorDrop' => ->(_params) {
     { '_liquidz_error_drop' => true }
+  },
+
+  # CountingDrop - tracks accesses and returns "N accesses"
+  'CountingDrop' => ->(_params) {
+    { 'whatever' => '1 accesses' }
+  },
+
+  # ToSDrop - returns "woot: N" where N is the foo value
+  'ToSDrop' => ->(params) {
+    foo = params.is_a?(Hash) ? (params['foo'] || 0) : 0
+    "woot: #{foo}"
   },
 
   # Loader drop - has data array for iteration
