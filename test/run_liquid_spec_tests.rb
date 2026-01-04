@@ -129,10 +129,10 @@ INSTANTIATE_REGISTRY = {
 # pattern and converting it to appropriate JSON-compatible values.
 
 def process_instantiate_format(obj, visited = Set.new)
-  # Prevent infinite recursion with object identity
+  # Prevent infinite recursion with object identity - mark recursive hashes
   obj_id = obj.object_id
   if (obj.is_a?(Hash) || obj.is_a?(Array)) && visited.include?(obj_id)
-    return obj.is_a?(Hash) ? {} : []
+    return obj.is_a?(Hash) ? { '_liquidz_recursive' => true } : []
   end
   visited = visited.dup
   visited.add(obj_id) if obj.is_a?(Hash) || obj.is_a?(Array)
@@ -164,6 +164,9 @@ def process_instantiate_format(obj, visited = Set.new)
       if k.is_a?(Symbol)
         result[':' + k.to_s] = process_instantiate_format(v, visited)
         result['_liquidz_has_symbol_keys'] = true
+      elsif k.is_a?(Hash)
+        # Hash as key - preserve as a Hash object for convert_to_json_compatible
+        result[k] = process_instantiate_format(v, visited)
       else
         result[k.to_s] = process_instantiate_format(v, visited)
       end
@@ -202,12 +205,24 @@ end
 # =============================================================================
 # Handles remaining Ruby types that might appear in specs.
 
+# Format a Ruby hash in the Ruby inspect style (no spaces around =>)
+def format_ruby_hash(hash)
+  pairs = hash.map do |k, v|
+    key_str = k.is_a?(String) ? "\"#{k}\"" : k.inspect
+    val_str = v.is_a?(String) ? "\"#{v}\"" : v.inspect
+    "#{key_str}=>#{val_str}"
+  end
+  "{#{pairs.join(', ')}}"
+end
+
 def convert_to_json_compatible(obj, visited = Set.new)
   return obj if obj.nil?
 
-  # Prevent infinite recursion
+  # Prevent infinite recursion - return recursive marker for hashes
   obj_id = obj.object_id
-  return nil if visited.include?(obj_id) && obj.is_a?(Hash)
+  if visited.include?(obj_id) && obj.is_a?(Hash)
+    return { '_liquidz_recursive' => true }
+  end
   visited = visited.dup
   visited.add(obj_id) if obj.is_a?(Hash) || obj.is_a?(Array)
 
@@ -221,6 +236,11 @@ def convert_to_json_compatible(obj, visited = Set.new)
       if k.is_a?(Symbol)
         result[':' + k.to_s] = converted
         result['_liquidz_has_symbol_keys'] = true
+      elsif k.is_a?(Hash)
+        # Hash as key - format it in Ruby style for the key
+        hash_key_str = format_ruby_hash(k)
+        result['_liquidz_hash_key:' + hash_key_str] = converted
+        result['_liquidz_has_hash_keys'] = true
       else
         result[k.to_s] = converted
       end
