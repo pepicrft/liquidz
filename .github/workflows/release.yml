@@ -227,7 +227,7 @@ jobs:
           build_target x86_64-tvos-simulator x86_64-apple-tvos-simulator
 
           # watchOS
-          build_target arm64_32-watchos arm64_32-apple-watchos
+          build_target aarch64-watchos arm64-apple-watchos
           build_target aarch64-watchos-simulator arm64-apple-watchos-simulator
           build_target x86_64-watchos-simulator x86_64-apple-watchos-simulator
 
@@ -284,8 +284,8 @@ jobs:
                     "headersPath": "include"
                   },
                   {
-                    "path": "arm64_32-apple-watchos/libliquidz_ffi.a",
-                    "supportedTriples": ["arm64_32-apple-watchos"],
+                    "path": "arm64-apple-watchos/libliquidz_ffi.a",
+                    "supportedTriples": ["arm64-apple-watchos"],
                     "headersPath": "include"
                   },
                   {
